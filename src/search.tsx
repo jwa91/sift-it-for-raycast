@@ -14,7 +14,7 @@ import { useEngine } from "./lib/engine";
 import { FILTERS, KIND_ICONS, KIND_LABELS, bytes, folderOf, locationLabel, timestamp } from "./lib/format";
 import { detailMarkdown } from "./lib/markdown";
 import { openHit, openTitle } from "./lib/open";
-import { Preview, SHOWN_AS_IS, previewKey, usePreviews } from "./lib/preview";
+import { Preview, SHOWN_AS_IS, previewKey, usePreviews, useThumbnails } from "./lib/preview";
 import type { Hit, SearchResponse } from "./lib/sift";
 import Folders from "./folders";
 
@@ -33,6 +33,7 @@ export default function Command() {
   const [selected, setSelected] = useState<string | null>(null);
   const hits = response?.hits ?? [];
   const previews = usePreviews(showingDetail ? engine : undefined, hits, selected);
+  const thumbnails = useThumbnails(ready ? engine : undefined, hits);
 
   useEffect(() => {
     if (!engine || !ready) return;
@@ -42,7 +43,8 @@ export default function Command() {
     engine
       .request<SearchResponse>("search", { q: query, kinds, limit: 50, prefix_last: true })
       .then((result) => current && setResponse(result))
-      .catch(() => current && setResponse(undefined))
+      // A search that fails keeps the results that are there (an engine that stopped says so on its own).
+      .catch(() => undefined)
       .finally(() => current && setLoading(false));
     return () => {
       current = false;
@@ -83,6 +85,7 @@ export default function Command() {
       hit={hit}
       query={query}
       preview={previews[previewKey(hit)]}
+      thumbnail={thumbnails[previewKey(hit)]}
       showingDetail={showingDetail}
       onToggleDetail={toggleDetail}
     />
@@ -131,10 +134,11 @@ export default function Command() {
   );
 }
 
-/** The list icon: a picture result shows itself (once its preview is there), the rest their file's icon. */
-function iconFor(hit: Hit, preview?: Preview): Image.ImageLike {
+/** The list icon: a picture itself, a video its frame where it matched (once there), the rest their file's icon. */
+function iconFor(hit: Hit, preview?: Preview, thumbnail?: string): Image.ImageLike {
   const visual = hit.kind === "image" || hit.kind === "screenshot" || hit.kind === "video";
-  if (visual && preview?.image) return { source: preview.image, mask: Image.Mask.RoundedRectangle };
+  const image = thumbnail ?? preview?.image;
+  if (visual && image) return { source: image, mask: Image.Mask.RoundedRectangle };
   if ((hit.kind === "image" || hit.kind === "screenshot") && SHOWN_AS_IS.test(hit.path)) {
     return { source: hit.path, mask: Image.Mask.RoundedRectangle };
   }
@@ -155,10 +159,11 @@ function Result(props: {
   hit: Hit;
   query: string;
   preview?: Preview;
+  thumbnail?: string;
   showingDetail: boolean;
   onToggleDetail: () => void;
 }) {
-  const { hit, query, preview, showingDetail, onToggleDetail } = props;
+  const { hit, query, preview, thumbnail, showingDetail, onToggleDetail } = props;
   const open = openTitle(hit);
   const where = shortLocation(hit);
   const accessories: List.Item.Accessory[] = showingDetail
@@ -178,7 +183,7 @@ function Result(props: {
       id={hit.path}
       title={hit.name}
       subtitle={showingDetail ? undefined : folderOf(hit.path)}
-      icon={iconFor(hit, preview)}
+      icon={iconFor(hit, preview, thumbnail)}
       accessories={accessories}
       quickLook={{ path: hit.path, name: hit.name }}
       detail={<ResultDetail hit={hit} query={query} preview={preview} />}

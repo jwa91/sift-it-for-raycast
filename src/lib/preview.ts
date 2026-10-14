@@ -62,6 +62,31 @@ function waveform(render: (params: Record<string, unknown>) => Promise<string>, 
 }
 
 /**
+ * Small pictures for the list, by previewKey: a video's frame at the moment it matched, and pictures Raycast can't show
+ * from the file itself (HEIC, RAW…). Each is fetched once.
+ */
+export function useThumbnails(engine: Engine | undefined, hits: Hit[]): Record<string, string> {
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const requested = useRef(new Set<string>());
+  useEffect(() => {
+    if (!engine) return;
+    for (const hit of hits) {
+      const picture = (hit.kind === "image" || hit.kind === "screenshot") && !SHOWN_AS_IS.test(hit.path);
+      if (hit.kind !== "video" && !picture) continue;
+      const key = previewKey(hit);
+      if (requested.current.has(key)) continue;
+      requested.current.add(key);
+      const params = hit.kind === "video" ? { kind: "video", loc: hit.loc ?? 0 } : { kind: "image" };
+      engine
+        .request<{ image: string }>("preview", { path: hit.path, ...params, size: 256 })
+        .then(({ image }) => setThumbnails((current) => ({ ...current, [key]: image })))
+        .catch(() => undefined);
+    }
+  }, [engine, hits]);
+  return thumbnails;
+}
+
+/**
  * Previews for the selected result and the first few (so moving down the list finds them ready), each fetched once.
  * Returns them by previewKey.
  */
