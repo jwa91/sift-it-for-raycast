@@ -12,7 +12,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-const SCHEMA_VERSION: i64 = 1;
+/// 2: segment ids are never reused (AUTOINCREMENT), so a searcher can tell new segments from replaced ones.
+const SCHEMA_VERSION: i64 = 2;
 
 /// What a segment is, which also says which of the model's inputs made its vector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -165,7 +166,7 @@ impl Store {
              );
              CREATE INDEX IF NOT EXISTS files_state ON files(state);
              CREATE TABLE IF NOT EXISTS segments (
-                 id INTEGER PRIMARY KEY,
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
                  segment TEXT NOT NULL,
                  loc REAL,
@@ -189,6 +190,24 @@ impl Store {
                 self.conn.execute("INSERT INTO meta VALUES ('schema', ?1)", [SCHEMA_VERSION.to_string()])?;
             }
             Some(SCHEMA_VERSION) => {}
+            Some(1) => self.conn.execute_batch(
+                "BEGIN;
+                 ALTER TABLE segments RENAME TO segments_v1;
+                 CREATE TABLE segments (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                     segment TEXT NOT NULL,
+                     loc REAL,
+                     loc_end REAL,
+                     text TEXT,
+                     vector BLOB
+                 );
+                 INSERT INTO segments SELECT id, file_id, segment, loc, loc_end, text, vector FROM segments_v1;
+                 DROP TABLE segments_v1;
+                 CREATE INDEX segments_file ON segments(file_id);
+                 UPDATE meta SET value = '2' WHERE key = 'schema';
+                 COMMIT;",
+            )?,
             Some(other) => bail!("{} is index version {other}; this build reads {SCHEMA_VERSION}", self.path.display()),
         }
         Ok(())
@@ -398,6 +417,16 @@ impl Store {
             self.set_meta("vector_source", source)?;
         }
         Ok(stale)
+    }
+
+    /// Queues again the files where some piece couldn't be embedded (a passing failure, perhaps), once they've had
+    /// `hours` to settle. Returns how many.
+    pub fn requeue_unembedded(&self, hours: f64) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE files SET state = 'pending' WHERE state = 'done'
+             AND json_extract(info, '$.unembedded') > 0 AND indexed_at < ?1",
+            [now() - hours * 3600.0],
+        )?)
     }
 
     /// Drops every vector and queues every file again (after a change of model or pipeline).

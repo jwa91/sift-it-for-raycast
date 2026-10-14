@@ -131,6 +131,9 @@ pub fn crawl(config: &Config) -> Crawl {
             Err(_) => crawl.unavailable.push(root.clone()),
         }
     }
+    // A chosen folder inside another one: its files were found twice.
+    let mut seen = std::collections::HashSet::new();
+    crawl.found.retain(|file| seen.insert(file.path.clone()));
     crawl
 }
 

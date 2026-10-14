@@ -31,6 +31,11 @@ const WORD_BONUS: f32 = 0.10;
 const CLOSE: f32 = 0.04;
 /// Above this many vectors, the median is taken from a sample (it's the same median, faster).
 const MEDIAN_SAMPLE: usize = 50_000;
+/// A typical median: across the testbed's queries, a query's median segment scores 0.49–0.59. A small index's own
+/// median is pulled toward it (as if it held PRIOR_WEIGHT more segments scoring that), or with a file or two the
+/// median would be the match itself, and nothing could ever stand out.
+const PRIOR_MEDIAN: f32 = 0.55;
+const PRIOR_WEIGHT: f32 = 30.0;
 
 #[link(name = "Accelerate", kind = "framework")]
 unsafe extern "C" {
@@ -177,17 +182,14 @@ impl Searcher {
             .store
             .meta("vector_source")?
             .is_none_or(|source| source == crate::embedder::vector_source());
+        // Segment ids are never reused, so what's loaded is still right unless some of it was deleted.
         let kept: i64 = self.store.conn.query_row(
             "SELECT COUNT(*) FROM segments WHERE vector IS NOT NULL AND id <= ?1",
             [self.max_id],
             |row| row.get(0),
         )?;
         if kept as usize != self.ids.len() {
-            self.ids.clear();
-            self.rows.clear();
-            self.files.clear();
-            self.matrix.clear();
-            self.max_id = 0;
+            self.drop_deleted()?;
         }
         let mut statement = self
             .store
@@ -217,6 +219,30 @@ impl Searcher {
         Ok(true)
     }
 
+    /// Drops the loaded vectors whose segments are gone (a file changed or left), keeping the rest in place.
+    fn drop_deleted(&mut self) -> Result<()> {
+        let mut statement =
+            self.store.conn.prepare("SELECT id FROM segments WHERE vector IS NOT NULL AND id <= ?1")?;
+        let present: std::collections::HashSet<i64> =
+            statement.query_map([self.max_id], |row| row.get(0))?.collect::<std::result::Result<_, _>>()?;
+        let mut kept = 0;
+        for row in 0..self.ids.len() {
+            if present.contains(&self.ids[row]) {
+                if kept != row {
+                    self.ids[kept] = self.ids[row];
+                    self.files[kept] = self.files[row];
+                    self.matrix.copy_within(row * DIM..(row + 1) * DIM, kept * DIM);
+                }
+                kept += 1;
+            }
+        }
+        self.ids.truncate(kept);
+        self.files.truncate(kept);
+        self.matrix.truncate(kept * DIM);
+        self.rows = self.ids.iter().enumerate().map(|(row, &id)| (id, row)).collect();
+        Ok(())
+    }
+
     pub fn search(&mut self, request: &Request, query: Option<&[f32]>) -> Result<Response> {
         let started = std::time::Instant::now();
         self.refresh()?;
@@ -234,7 +260,8 @@ impl Searcher {
         let (cosines, median) = match query {
             Some(query) if !self.ids.is_empty() => {
                 let cosines = self.cosines(query);
-                let median = median(&cosines);
+                let n = cosines.len() as f32;
+                let median = (median(&cosines) * n + PRIOR_MEDIAN * PRIOR_WEIGHT) / (n + PRIOR_WEIGHT);
                 (cosines, median)
             }
             _ => (Vec::new(), 0.0),
@@ -333,27 +360,26 @@ impl Searcher {
 
     /// Recently changed files, for an empty query.
     pub fn recent(&self, request: &Request) -> Result<Response> {
-        let mut statement = self.store.conn.prepare(
-            "SELECT (SELECT MIN(id) FROM segments WHERE file_id = f.id), f.kind FROM files f
-             WHERE f.state = 'done' ORDER BY f.modified DESC LIMIT ?1",
-        )?;
-        let candidates: Vec<(Option<i64>, String)> = statement
-            .query_map([request.limit as i64 * 4], |row| Ok((row.get(0)?, row.get(1)?)))?
+        // The kinds go into the query itself (kind names are fixed words, safe to inline): filtering after the limit
+        // could leave nothing.
+        let kinds = if request.kinds.is_empty() {
+            "f.kind != 'code'".to_string()
+        } else {
+            let names: Vec<String> = request.kinds.iter().map(|kind| format!("'{}'", kind.as_str())).collect();
+            format!("f.kind IN ({})", names.join(", "))
+        };
+        let mut statement = self.store.conn.prepare(&format!(
+            "SELECT (SELECT MIN(id) FROM segments WHERE file_id = f.id) FROM files f
+             WHERE f.state = 'done' AND {kinds} ORDER BY f.modified DESC LIMIT ?1"
+        ))?;
+        let candidates: Vec<Option<i64>> = statement
+            .query_map([request.limit as i64], |row| row.get(0))?
             .collect::<std::result::Result<_, _>>()?;
         let mut hits = Vec::new();
-        for (segment_id, kind) in candidates {
-            let Some(segment_id) = segment_id else { continue };
-            let kind = Kind::parse(&kind).unwrap_or(Kind::Text);
-            let wanted = if request.kinds.is_empty() { kind != Kind::Code } else { request.kinds.contains(&kind) };
-            if !wanted {
-                continue;
-            }
+        for segment_id in candidates.into_iter().flatten() {
             if let Some(mut hit) = self.hit(segment_id, &[])? {
                 hit.strong = true;
                 hits.push(hit);
-            }
-            if hits.len() >= request.limit {
-                break;
             }
         }
         Ok(Response { hits, meaning: false, ms: 0.0 })
@@ -507,8 +533,12 @@ pub fn excerpt(text: &str, words: &[String]) -> String {
             while !text.is_char_boundary(start) {
                 start -= 1;
             }
-            // Begin at a word.
-            text[start..].find(char::is_whitespace).map(|space| start + space + 1).unwrap_or(start)
+            // Begin at a word (after the whole space character: some are more than one byte).
+            text[start..]
+                .char_indices()
+                .find(|(_, c)| c.is_whitespace())
+                .map(|(i, c)| start + i + c.len_utf8())
+                .unwrap_or(start)
         }
         _ => 0,
     };
@@ -535,6 +565,14 @@ mod tests {
     fn median_of_odd_and_even() {
         assert_eq!(median(&[0.3, 0.1, 0.2]), 0.2);
         assert_eq!(median(&[0.4, 0.1, 0.3, 0.2]), 0.3);
+    }
+
+    #[test]
+    fn excerpt_survives_wide_spaces() {
+        let text = format!("{}\u{3000}word\u{00A0}more {}", "あ".repeat(60), "pet ".repeat(50));
+        assert!(excerpt(&text, &["pet".to_string()]).contains("pet"));
+        let text = format!("{}\u{00A0}{} pet", "x".repeat(150), "y".repeat(40));
+        assert!(excerpt(&text, &["pet".to_string()]).contains("pet"));
     }
 
     #[test]

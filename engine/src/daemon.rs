@@ -18,7 +18,7 @@ use crate::store::{self, Store};
 use anyhow::{bail, Context, Result};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -194,11 +194,14 @@ fn watch(config: &Config, events: std::sync::mpsc::Sender<notify::Result<notify:
     Ok(watcher)
 }
 
-/// Changed paths gathered from FSEvents, handed over once they've been quiet a moment.
+/// Changed paths gathered from FSEvents, each handed over once it has been quiet a moment (a download still being
+/// written doesn't hold back a screenshot that just landed).
 struct Changes {
     receiver: Receiver<notify::Result<notify::Event>>,
-    paths: HashSet<PathBuf>,
-    last: Option<Instant>,
+    /// Each changed path, with when it last changed.
+    paths: HashMap<PathBuf, Instant>,
+    /// The chosen folders: what's below them decides what's worth a look.
+    roots: Vec<PathBuf>,
     rescan: bool,
 }
 
@@ -213,14 +216,9 @@ impl Changes {
         match event {
             Ok(event) if event.need_rescan() => self.rescan = true,
             Ok(event) => {
-                // Events inside hidden folders and the Library are never about indexed files: skip them early.
                 for path in event.paths {
-                    if !path.components().any(|c| {
-                        let c = c.as_os_str().to_string_lossy();
-                        c.starts_with('.') || c == "Library"
-                    }) {
-                        self.paths.insert(path);
-                        self.last = Some(Instant::now());
+                    if self.worth_a_look(&path) {
+                        self.paths.insert(path, Instant::now());
                     }
                 }
             }
@@ -231,16 +229,33 @@ impl Changes {
         }
     }
 
-    /// The paths that have settled, folded so a folder covers what's in it.
+    /// Below its chosen folder, a path in a hidden folder or a Library is never about an indexed file. (Only below:
+    /// iCloud Drive and Dropbox live in ~/Library themselves.)
+    fn worth_a_look(&self, path: &Path) -> bool {
+        let Some(root) = self.roots.iter().filter(|root| path.starts_with(root)).max_by_key(|r| r.as_os_str().len())
+        else {
+            return false;
+        };
+        !path.strip_prefix(root).unwrap_or(path).components().any(|c| {
+            let c = c.as_os_str().to_string_lossy();
+            c.starts_with('.') || c == "Library"
+        })
+    }
+
+    /// The paths that have settled, folded so a folder covers what's in it. The rest wait.
     fn take(&mut self) -> Vec<PathBuf> {
         self.drain();
-        if self.paths.is_empty() || self.last.is_some_and(|last| last.elapsed() < QUIET) {
+        let mut settled: Vec<PathBuf> =
+            self.paths.iter().filter(|(_, changed)| changed.elapsed() >= QUIET).map(|(p, _)| p.clone()).collect();
+        if settled.is_empty() {
             return Vec::new();
         }
-        let mut paths: Vec<PathBuf> = self.paths.drain().collect();
-        paths.sort();
+        for path in &settled {
+            self.paths.remove(path);
+        }
+        settled.sort();
         let mut folded: Vec<PathBuf> = Vec::new();
-        for path in paths {
+        for path in settled {
             if !folded.last().is_some_and(|last| path.starts_with(last)) {
                 folded.push(path);
             }
@@ -278,7 +293,7 @@ pub fn run() -> Result<()> {
     let mut indexer = Indexer::new(store, config::models_dir())?;
     let (sender, receiver) = channel();
     let mut watcher = watch(&config, sender.clone())?;
-    let mut changes = Changes { receiver, paths: HashSet::new(), last: None, rescan: true };
+    let mut changes = Changes { receiver, paths: HashMap::new(), roots: config.folders.clone(), rescan: true };
     let mut last_full = Instant::now();
     let mut idle_since = Instant::now();
     let mut paused = false;
@@ -291,6 +306,8 @@ pub fn run() -> Result<()> {
             match Config::load() {
                 Ok(new) => {
                     config = new;
+                    waiting_reason = None;
+                    changes.roots = config.folders.clone();
                     drop(watcher);
                     watcher = watch(&config, sender.clone())?;
                     changes.rescan = true;
@@ -322,7 +339,11 @@ pub fn run() -> Result<()> {
             if !paths.is_empty() {
                 match indexer.sync_paths(&config, &paths) {
                     Ok(event) => reporter.event(&event),
-                    Err(error) => log(&format!("sync failed: {error:#}")),
+                    Err(error) => {
+                        // Those paths were taken: look at everything next time instead.
+                        log(&format!("sync failed: {error:#}"));
+                        changes.rescan = true;
+                    }
                 }
             }
         }
@@ -334,10 +355,13 @@ pub fn run() -> Result<()> {
             // Conditions are checked every few seconds, not on every pass.
             let reason = match &waiting_reason {
                 Some((reason, checked)) if checked.elapsed() < WAIT_CHECK => Some(reason.clone()),
-                _ => reason_to_wait(&config),
+                _ => {
+                    let reason = reason_to_wait(&config);
+                    waiting_reason = reason.clone().map(|reason| (reason, Instant::now()));
+                    reason
+                }
             };
             if let Some(reason) = reason {
-                waiting_reason = Some((reason.clone(), Instant::now()));
                 reporter.set("waiting", Some(reason));
                 indexer.release_model();
             } else {
@@ -355,6 +379,7 @@ pub fn run() -> Result<()> {
                     let mut take = || changes.take();
                     if let Err(error) = indexer.index_pending(&config, &mut events, &stop, &mut take) {
                         log(&format!("indexing stopped: {error:#}"));
+                        changes.rescan = true;
                         reporter.status.last_error = Some(format!("{error:#}"));
                         // Not straight back into the same failure.
                         sleep_interruptibly(Duration::from_secs(30));

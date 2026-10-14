@@ -82,7 +82,9 @@ impl Indexer {
             self.store.files()?.into_iter().map(|row| (row.path.clone(), row)).collect();
         let found_paths: HashSet<&PathBuf> = crawl.found.iter().map(|f| &f.path).collect();
         let transaction = self.store.conn.unchecked_transaction()?;
-        let (added, changed) = self.queue_found(&crawl.found, &existing)?;
+        let (added, mut changed) = self.queue_found(&crawl.found, &existing)?;
+        // Files where some piece couldn't be embedded: once in a while, try them again.
+        changed += self.store.requeue_unembedded(6.0)?;
         let mut removed = 0;
         for (path, row) in &existing {
             if found_paths.contains(path) || crawl.unavailable.iter().any(|root| path.starts_with(root)) {
@@ -210,9 +212,13 @@ impl Indexer {
                     if send(Message::Start(id, Instant::now())).is_err() {
                         break;
                     }
-                    let result = objc2::rc::autoreleasepool(|_| {
-                        readers::read(&row.path, row.kind, &mut |piece| send(Message::Piece(id, piece)))
-                    });
+                    // A reader that panics (a file no one expected) is a file that couldn't be read, not a lost run.
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        objc2::rc::autoreleasepool(|_| {
+                            readers::read(&row.path, row.kind, &mut |piece| send(Message::Piece(id, piece)))
+                        })
+                    }))
+                    .unwrap_or_else(|_| Err(anyhow!("the reader crashed on it")));
                     if send(Message::Done(id, result)).is_err() {
                         break;
                     }
