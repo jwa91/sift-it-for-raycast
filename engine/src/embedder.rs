@@ -143,7 +143,10 @@ impl Embedder {
             }
             // Each input must fit in one micro-batch. 2048 tokens holds a long passage, a 1120-token image or a 30 s
             // clip (750 tokens). Queries are short, so the query encoder reserves less.
-            let max_tokens = if text_only { 512 } else { 2048 };
+            let max_tokens = std::env::var("SIFT_BATCH_TOKENS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(if text_only { 512 } else { 2048 });
             let mut params = ll::llama_context_default_params();
             params.n_ctx = max_tokens as u32;
             params.n_batch = max_tokens as u32;
@@ -339,6 +342,11 @@ impl Embedder {
             }
             Ok(self.run()?.remove(0))
         }
+    }
+
+    /// How many tokens the model sees for this text.
+    pub fn count_tokens(&self, text: &str) -> usize {
+        self.tokenize(text).len()
     }
 
     /// `<bos> text <eos>`; a text longer than the context keeps its start (and still ends in `<eos>`).
