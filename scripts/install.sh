@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$HOME/Library/Application Support/Sift/bin"
 
 [[ -f "$ROOT/vendor/llama-build/TAG" ]] || "$ROOT/scripts/build-llama.sh"
-cargo build --release --manifest-path "$ROOT/engine/Cargo.toml"
+(cd "$ROOT/engine" && cargo build --release)   # from engine/, so its .cargo/config.toml applies
 mkdir -p "$BIN"
 # Copy, then rename: a running indexer keeps its old binary, and the next start gets the new one.
 cp "$ROOT/engine/target/release/sift" "$BIN/sift.new"
