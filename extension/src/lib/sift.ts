@@ -19,8 +19,12 @@ export interface Hit {
   loc?: number | null;
   loc_end?: number | null;
   score: number;
-  z?: number | null;
+  /** How far the meaning match stands above the query's median. */
+  lift?: number | null;
   cosine?: number | null;
+  /** Matched by meaning. */
+  meaning: boolean;
+  /** Has all of the query's words. */
   words: boolean;
   strong: boolean;
   excerpt?: string | null;

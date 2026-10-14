@@ -2,6 +2,8 @@
 //! its token budget, 30 s of 16 kHz sound) and what the keyword index should hold. They stream their pieces to a
 //! sink, so a long video never sits in memory whole.
 
+pub mod image;
+pub mod media;
 pub mod pdf;
 pub mod text;
 
@@ -37,9 +39,9 @@ pub fn read(path: &Path, kind: Kind, sink: Sink) -> Result<serde_json::Value> {
         Kind::Text | Kind::Code => text::read_plain(path, sink),
         Kind::Doc => text::read_document(path, sink),
         Kind::Pdf => pdf::read(path, sink),
-        Kind::Image | Kind::Screenshot | Kind::Audio | Kind::Video => {
-            anyhow::bail!("{} files aren't read yet", kind.as_str())
-        }
+        Kind::Image | Kind::Screenshot => image::read(path, kind, sink),
+        Kind::Audio => media::read_audio(path, sink),
+        Kind::Video => media::read_video(path, sink),
     }
 }
 

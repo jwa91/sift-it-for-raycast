@@ -30,6 +30,8 @@ pub enum Event {
 }
 
 enum Message {
+    /// The first message about a file: when its reading started.
+    Start(i64, Instant),
     Piece(i64, Piece),
     Done(i64, Result<serde_json::Value>),
 }
@@ -137,6 +139,9 @@ impl Indexer {
                 }
                 let Some(row) = queue.lock().unwrap().pop_front() else { break };
                 let id = row.id;
+                if sender.send(Message::Start(id, Instant::now())).is_err() {
+                    break;
+                }
                 let result = objc2::rc::autoreleasepool(|_| {
                     readers::read(&row.path, row.kind, &mut |piece| {
                         sender.send(Message::Piece(id, piece)).map_err(|_| anyhow!("indexing stopped"))
@@ -159,6 +164,10 @@ impl Indexer {
                 break;
             }
             match message {
+                Message::Start(id, started) => {
+                    let (path, kind) = paths[&id].clone();
+                    assemblies.insert(id, Assembly { path, kind, started, segments: Vec::new(), failures: 0 });
+                }
                 Message::Piece(id, piece) => {
                     assemblies.entry(id).or_insert_with(|| {
                         let (path, kind) = paths[&id].clone();

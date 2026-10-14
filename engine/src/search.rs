@@ -1,31 +1,36 @@
 //! Hybrid search: meaning (the model's vectors) and exact words (the full-text index), one result per file.
 //!
-//! Meaning: every vector is scored against the query (one matrix-vector product), and each score is put on its
-//! modality's scale: how many standard deviations it stands above the typical score of a passage, a picture or a stretch
-//! of sound for this query. That's what lets a photo compete with a page of text (a query lands nearer to text than to
-//! a picture that matches it as well), and it gives an honest "nothing found": when nothing stands out, nothing is
-//! shown.
+//! Meaning: every vector is scored against the query (cosine similarity, one matrix-vector product). What counts is the
+//! lift: how far a segment stands above the median segment for this query. Queries differ in how close they land to
+//! everything (a vague query is near all of it), and the lift takes that out. EmbeddingGemma 2 puts text, pictures and
+//! sound on one scale (measured on the testbed: the typical score of each kind for a query is within a few hundredths
+//! of the others'), so one median serves all of them. A segment that lifts little isn't shown, which gives an honest
+//! "nothing found".
 //!
 //! Words: a segment with every word of the query (the last one as a prefix, while typing) gets a bonus, since no vector
-//! holds an invoice number or a name exactly.
+//! holds an invoice number or a name exactly. Words also pick which of a file's segments a result opens at, between
+//! segments the meaning scores about the same.
 
 use crate::crawl::Kind;
 use crate::embedder::DIM;
-use crate::store::{blob_to_vector, Modality, Segment, Store};
+use crate::store::{blob_to_vector, Segment, Store};
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// A meaning match must stand this far above its modality's typical score to be shown at all...
-const WEAK_GATE: f32 = 2.0;
-/// ...and this far to count as a strong one (weaker matches are shown after them, apart).
-const STRONG_GATE: f32 = 3.0;
+/// Lift (cosine above the query's median) a meaning match needs to be shown at all, and to count as a strong match.
+/// On the testbed (scripts/evals.json), answers lift 0.12–0.30 (nearly all above 0.135); the best results for queries
+/// without an answer lift 0.05–0.10, except a near miss at 0.144.
+const SHOWN_LIFT: f32 = 0.09;
+const STRONG_LIFT: f32 = 0.13;
 /// The bonus for containing all of the query's words, in the same units.
-const WORD_BONUS: f32 = 2.5;
-/// Below this many vectors of a modality, its scores' spread is a guess: borrow the overall one.
-const MIN_FOR_STATS: usize = 30;
+const WORD_BONUS: f32 = 0.10;
+/// Segments of one file within this much of its best are close enough for words to choose between them.
+const CLOSE: f32 = 0.04;
+/// Above this many vectors, the median is taken from a sample (it's the same median, faster).
+const MEDIAN_SAMPLE: usize = 50_000;
 
 #[link(name = "Accelerate", kind = "framework")]
 unsafe extern "C" {
@@ -66,9 +71,12 @@ pub struct Hit {
     pub loc: Option<f64>,
     pub loc_end: Option<f64>,
     pub score: f32,
-    /// How far the meaning match stands out (None without a query vector, or for a segment without one).
-    pub z: Option<f32>,
+    /// How far the segment's meaning stands above the query's median (None without a query vector, or for a segment
+    /// without one).
+    pub lift: Option<f32>,
     pub cosine: Option<f32>,
+    /// It matched by meaning (its lift clears the bar).
+    pub meaning: bool,
     /// All of the query's words are in it.
     pub words: bool,
     pub strong: bool,
@@ -91,11 +99,18 @@ pub struct Searcher {
     ids: Vec<i64>,
     rows: HashMap<i64, usize>,
     files: Vec<i64>,
-    modalities: Vec<Modality>,
     matrix: Vec<f32>,
     file_kinds: HashMap<i64, Kind>,
     data_version: i64,
     max_id: i64,
+}
+
+/// A segment in the running for its file.
+#[derive(Clone, Copy)]
+struct Candidate {
+    segment: i64,
+    score: f32,
+    words: bool,
 }
 
 impl Searcher {
@@ -106,7 +121,6 @@ impl Searcher {
             ids: Vec::new(),
             rows: HashMap::new(),
             files: Vec::new(),
-            modalities: Vec::new(),
             matrix: Vec::new(),
             file_kinds: HashMap::new(),
             data_version: -1,
@@ -140,25 +154,23 @@ impl Searcher {
             self.ids.clear();
             self.rows.clear();
             self.files.clear();
-            self.modalities.clear();
             self.matrix.clear();
             self.max_id = 0;
         }
-        let mut statement = self.store.conn.prepare(
-            "SELECT id, file_id, segment, vector FROM segments WHERE vector IS NOT NULL AND id > ?1 ORDER BY id",
-        )?;
+        let mut statement = self
+            .store
+            .conn
+            .prepare("SELECT id, file_id, vector FROM segments WHERE vector IS NOT NULL AND id > ?1 ORDER BY id")?;
         let mut rows = statement.query([self.max_id])?;
         while let Some(row) = rows.next()? {
             let id: i64 = row.get(0)?;
-            let segment = Segment::parse(&row.get::<_, String>(2)?).unwrap_or(Segment::Passage);
-            let blob = row.get_ref(3)?.as_blob()?;
+            let blob = row.get_ref(2)?.as_blob()?;
             if blob.len() != DIM * 4 {
                 continue;
             }
             self.rows.insert(id, self.ids.len());
             self.ids.push(id);
             self.files.push(row.get(1)?);
-            self.modalities.push(segment.modality());
             blob_to_vector(blob, &mut self.matrix);
             self.max_id = self.max_id.max(id);
         }
@@ -178,80 +190,105 @@ impl Searcher {
         self.refresh()?;
         let wanted = |kind: Kind| request.kinds.is_empty() || request.kinds.contains(&kind);
 
-        // Meaning: every vector's standing for this query.
-        let (cosines, z) = match query {
+        // Meaning: every vector's cosine, and the query's median.
+        let (cosines, median) = match query {
             Some(query) if !self.ids.is_empty() => {
-                let cosines = self.scores(query);
-                let z = self.standardize(&cosines);
-                (cosines, z)
+                let cosines = self.cosines(query);
+                let median = median(&cosines);
+                (cosines, median)
             }
-            _ => (Vec::new(), Vec::new()),
+            _ => (Vec::new(), 0.0),
         };
+        let lift_of = |segment: i64| self.rows.get(&segment).and_then(|&row| cosines.get(row)).map(|c| c - median);
 
-        // Each segment's score: its meaning standing (when it clears the gate), plus the bonus for the words.
-        let mut segment_scores: HashMap<i64, (f32, bool)> = HashMap::new();
-        if !z.is_empty() {
-            let mut candidates: Vec<usize> = (0..z.len()).filter(|&i| z[i] >= WEAK_GATE).collect();
-            candidates.sort_by(|&a, &b| z[b].total_cmp(&z[a]));
-            for i in candidates.into_iter().take(2000) {
-                segment_scores.insert(self.ids[i], (z[i], false));
+        let mut candidates: HashMap<i64, Candidate> = HashMap::new();
+        if !cosines.is_empty() {
+            let mut shown: Vec<usize> = (0..cosines.len()).filter(|&i| cosines[i] - median >= SHOWN_LIFT).collect();
+            shown.sort_by(|&a, &b| cosines[b].total_cmp(&cosines[a]));
+            for i in shown.into_iter().take(5000) {
+                candidates.insert(self.ids[i], Candidate { segment: self.ids[i], score: cosines[i] - median, words: false });
             }
         }
         let words = words_of(&request.q);
         if !words.is_empty() {
-            let matches = self.word_matches(&words, request.prefix_last, 500)?;
+            let matches = self.word_matches(&words, request.prefix_last, 1000)?;
             let count = matches.len().max(1) as f32;
-            for (rank, id) in matches.into_iter().enumerate() {
-                let standing = self.rows.get(&id).and_then(|&row| z.get(row)).copied().unwrap_or(0.0).max(0.0);
-                // Earlier in the full-text ranking breaks ties.
-                let score = WORD_BONUS + standing + 0.5 * (1.0 - rank as f32 / count);
-                let entry = segment_scores.entry(id).or_insert((0.0, true));
-                *entry = (entry.0.max(score), true);
+            for (rank, segment) in matches.into_iter().enumerate() {
+                // Earlier in the full-text ranking breaks ties between files that only match by words.
+                let score = WORD_BONUS + lift_of(segment).unwrap_or(0.0).max(0.0) + 0.02 * (1.0 - rank as f32 / count);
+                candidates.insert(segment, Candidate { segment, score, words: true });
             }
         }
 
-        // One result per file: its best segment.
-        let mut best: HashMap<i64, (i64, f32, bool)> = HashMap::new();
-        for (&segment_id, &(score, words)) in &segment_scores {
-            let file_id = match self.rows.get(&segment_id) {
+        // Group by file, keeping the segments close to each file's best.
+        let mut by_file: HashMap<i64, Vec<Candidate>> = HashMap::new();
+        for candidate in candidates.into_values() {
+            let file = match self.rows.get(&candidate.segment) {
                 Some(&row) => self.files[row],
-                None => match self.file_of(segment_id)? {
-                    Some(file_id) => file_id,
+                None => match self.file_of(candidate.segment)? {
+                    Some(file) => file,
                     None => continue,
                 },
             };
-            if !self.file_kinds.get(&file_id).is_some_and(|&kind| wanted(kind)) {
-                continue;
-            }
-            let entry = best.entry(file_id).or_insert((segment_id, f32::MIN, false));
-            if score > entry.1 {
-                *entry = (segment_id, score, words || entry.2);
-            } else {
-                entry.2 |= words;
+            if self.file_kinds.get(&file).is_some_and(|&kind| wanted(kind)) {
+                by_file.entry(file).or_default().push(candidate);
             }
         }
-        let mut ranked: Vec<(i64, i64, f32, bool)> =
-            best.into_iter().map(|(file, (segment, score, words))| (file, segment, score, words)).collect();
-        ranked.sort_by(|a, b| b.2.total_cmp(&a.2));
+        let mut ranked: Vec<(f32, Vec<Candidate>)> = by_file
+            .into_values()
+            .map(|mut segments| {
+                segments.sort_by(|a, b| b.score.total_cmp(&a.score));
+                let best = segments[0].score;
+                segments.retain(|c| c.score >= best - CLOSE);
+                (best, segments)
+            })
+            .collect();
+        ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
         ranked.truncate(request.limit);
 
         let mut hits = Vec::with_capacity(ranked.len());
-        for (_, segment_id, score, has_words) in ranked {
-            let row = self.rows.get(&segment_id).copied();
-            let z_value = row.and_then(|r| z.get(r)).copied();
-            let cosine = row.and_then(|r| cosines.get(r)).copied();
-            if let Some(mut hit) = self.hit(segment_id, &words)? {
-                hit.score = score;
-                hit.z = z_value;
-                hit.cosine = cosine;
-                hit.words = has_words;
-                hit.strong = has_words || z_value.is_some_and(|z| z >= STRONG_GATE);
-                hits.push(hit);
-            }
+        for (score, segments) in ranked {
+            let has_words = segments.iter().any(|c| c.words);
+            let chosen = self.choose(&segments, &words)?;
+            let Some(mut hit) = self.hit(chosen, &words)? else { continue };
+            let lift = lift_of(chosen);
+            let best_lift = segments.iter().filter_map(|c| lift_of(c.segment)).fold(f32::MIN, f32::max);
+            hit.score = score;
+            hit.lift = lift;
+            hit.cosine = lift.map(|l| l + median);
+            hit.meaning = best_lift >= SHOWN_LIFT;
+            hit.words = has_words;
+            hit.strong = has_words || best_lift >= STRONG_LIFT;
+            hits.push(hit);
         }
         // Strong matches first, then the weaker ones, each by score.
         hits.sort_by(|a, b| b.strong.cmp(&a.strong).then(b.score.total_cmp(&a.score)));
         Ok(Response { hits, meaning: query.is_some(), ms: started.elapsed().as_secs_f64() * 1000.0 })
+    }
+
+    /// Of a file's segments that score about the same, the one with the most of the query's words.
+    fn choose(&self, segments: &[Candidate], words: &[String]) -> Result<i64> {
+        if segments.len() == 1 || words.is_empty() {
+            return Ok(segments[0].segment);
+        }
+        let mut best = (segments[0].segment, 0usize, segments[0].score);
+        for candidate in segments {
+            let text: Option<String> = self
+                .store
+                .conn
+                .prepare_cached("SELECT text FROM segments WHERE id = ?1")?
+                .query_row([candidate.segment], |row| row.get(0))
+                .optional()?
+                .flatten();
+            let text = text.unwrap_or_default().to_lowercase();
+            // Short words ("the", "for") are in every passage; numbers count whatever their length.
+            let telling = |word: &&String| word.chars().count() > 3 || word.chars().any(|c| c.is_numeric());
+            let found = words.iter().filter(telling).filter(|word| text.contains(word.as_str())).count();
+            if found > best.1 || (found == best.1 && candidate.score > best.2) {
+                best = (candidate.segment, found, candidate.score);
+            }
+        }
+        Ok(best.0)
     }
 
     /// Recently changed files, for an empty query.
@@ -281,8 +318,8 @@ impl Searcher {
         Ok(Response { hits, meaning: false, ms: 0.0 })
     }
 
-    /// Cosine similarity of every vector with the query.
-    fn scores(&self, query: &[f32]) -> Vec<f32> {
+    /// Cosine similarity of every vector with the query (vectors are normalized).
+    fn cosines(&self, query: &[f32]) -> Vec<f32> {
         let n = self.ids.len();
         let mut scores = vec![0.0f32; n];
         unsafe {
@@ -292,44 +329,6 @@ impl Searcher {
             );
         }
         scores
-    }
-
-    /// Each score as standard deviations above its modality's mean for this query.
-    fn standardize(&self, scores: &[f32]) -> Vec<f32> {
-        let mut sums: HashMap<Modality, (f64, f64, usize)> = HashMap::new();
-        let mut total = (0.0f64, 0.0f64, 0usize);
-        for (score, modality) in scores.iter().zip(&self.modalities) {
-            let s = *score as f64;
-            let entry = sums.entry(*modality).or_default();
-            entry.0 += s;
-            entry.1 += s * s;
-            entry.2 += 1;
-            total.0 += s;
-            total.1 += s * s;
-            total.2 += 1;
-        }
-        let stats = |(sum, squares, count): (f64, f64, usize)| {
-            let mean = sum / count.max(1) as f64;
-            let variance = (squares / count.max(1) as f64 - mean * mean).max(0.0);
-            (mean as f32, (variance.sqrt() as f32).max(0.02))
-        };
-        let overall = stats(total);
-        let per_modality: HashMap<Modality, (f32, f32)> = sums
-            .into_iter()
-            .map(|(modality, sums)| {
-                let (mean, spread) = stats(sums);
-                // Few vectors of a kind: keep their own mean, but not a spread measured on a handful.
-                (modality, if sums.2 >= MIN_FOR_STATS { (mean, spread) } else { (mean, spread.max(overall.1)) })
-            })
-            .collect();
-        scores
-            .iter()
-            .zip(&self.modalities)
-            .map(|(score, modality)| {
-                let (mean, spread) = per_modality[modality];
-                (score - mean) / spread
-            })
-            .collect()
     }
 
     /// Segments with every word, best first (FTS5's bm25).
@@ -384,8 +383,9 @@ impl Searcher {
                     loc_end: row.get(7)?,
                     excerpt: text.map(|text| excerpt(&text, words)),
                     score: 0.0,
-                    z: None,
+                    lift: None,
                     cosine: None,
+                    meaning: false,
                     words: false,
                     strong: false,
                 })
@@ -393,6 +393,19 @@ impl Searcher {
             .optional()?;
         Ok(hit)
     }
+}
+
+/// The median of the scores (of a sample of them, for a large index).
+fn median(scores: &[f32]) -> f32 {
+    let mut sample: Vec<f32> = if scores.len() > MEDIAN_SAMPLE {
+        let step = scores.len() / MEDIAN_SAMPLE;
+        scores.iter().step_by(step).copied().collect()
+    } else {
+        scores.to_vec()
+    };
+    let middle = sample.len() / 2;
+    let (_, median, _) = sample.select_nth_unstable_by(middle, |a, b| a.total_cmp(b));
+    *median
 }
 
 /// The query's words, as the full-text index splits them (letters and digits; everything else separates).
@@ -412,6 +425,7 @@ pub fn excerpt(text: &str, words: &[String]) -> String {
     // Lowercasing can change byte lengths; only trust a position that lands on a boundary in the original.
     let found = words
         .iter()
+        .filter(|word| word.len() > 2)
         .filter_map(|word| lower.find(word.as_str()))
         .min()
         .filter(|&position| text.is_char_boundary(position));
@@ -439,4 +453,23 @@ pub fn excerpt(text: &str, words: &[String]) -> String {
         excerpt.push('…');
     }
     excerpt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn median_of_odd_and_even() {
+        assert_eq!(median(&[0.3, 0.1, 0.2]), 0.2);
+        assert_eq!(median(&[0.4, 0.1, 0.3, 0.2]), 0.3);
+    }
+
+    #[test]
+    fn excerpt_centres_on_the_words() {
+        let text = format!("{} the pet clause is here {}", "filler ".repeat(80), "more ".repeat(80));
+        let excerpt = excerpt(&text, &["pet".to_string()]);
+        assert!(excerpt.contains("pet clause"));
+        assert!(excerpt.starts_with('…'));
+    }
 }

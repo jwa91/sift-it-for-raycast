@@ -243,12 +243,12 @@ function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; previe
         <List.Item.Detail.Metadata>
           <List.Item.Detail.Metadata.Label title="Kind" text={KIND_LABELS[hit.kind]} icon={KIND_ICONS[hit.kind]} />
           {where && <List.Item.Detail.Metadata.Label title="Match" text={where} />}
-          <List.Item.Detail.Metadata.TagList title="Matched by">
-            {hit.z != null && hit.z >= 2 && (
-              <List.Item.Detail.Metadata.TagList.Item text="meaning" color={Color.Blue} />
-            )}
-            {hit.words && <List.Item.Detail.Metadata.TagList.Item text="exact words" color={Color.Green} />}
-          </List.Item.Detail.Metadata.TagList>
+          {(hit.meaning || hit.words) && (
+            <List.Item.Detail.Metadata.TagList title="Matched by">
+              {hit.meaning && <List.Item.Detail.Metadata.TagList.Item text="meaning" color={Color.Blue} />}
+              {hit.words && <List.Item.Detail.Metadata.TagList.Item text="exact words" color={Color.Green} />}
+            </List.Item.Detail.Metadata.TagList>
+          )}
           {typeof info.pages === "number" && (
             <List.Item.Detail.Metadata.Label title="Pages" text={String(info.pages)} />
           )}

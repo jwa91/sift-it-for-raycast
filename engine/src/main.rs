@@ -1,9 +1,12 @@
+mod av;
 mod config;
 mod crawl;
 mod embedder;
+mod eval;
 mod imaging;
 mod indexer;
 mod llama;
+mod mac;
 mod models;
 mod preview;
 mod readers;
@@ -70,6 +73,16 @@ enum Command {
         #[command(subcommand)]
         action: ModelAction,
     },
+    /// Measure search against known answers (scripts/evals.json on the testbed)
+    Eval {
+        file: PathBuf,
+        /// Show each query's top results with their scores
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Print the query vectors of these queries, one JSON array per line (for analysis)
+    #[command(hide = true)]
+    EmbedQuery { queries: Vec<String> },
     /// Check that this build makes the reference vectors
     Selftest {
         /// The folder with vectors.json and its inputs
@@ -133,6 +146,20 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }),
         },
+        Command::Eval { file, verbose } => {
+            let mut searcher = search::Searcher::open(&config::index_path())?;
+            let files = embedder::ModelFiles::in_folder(&config::models_dir())?;
+            let mut encoder = embedder::Embedder::load(&files, true)?;
+            eval::run(&file, &mut searcher, &mut encoder, verbose)
+        }
+        Command::EmbedQuery { queries } => {
+            let files = embedder::ModelFiles::in_folder(&config::models_dir())?;
+            let mut encoder = embedder::Embedder::load(&files, true)?;
+            for query in queries {
+                println!("{}", serde_json::to_string(&encoder.embed_text(&embedder::prompts::query(&query))?)?);
+            }
+            Ok(())
+        }
         Command::Selftest { folder } => {
             let models = embedder::ModelFiles::in_folder(&config::models_dir())?;
             selftest::run(&models, &folder)

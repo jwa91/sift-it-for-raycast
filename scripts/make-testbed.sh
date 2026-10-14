@@ -127,5 +127,77 @@ cupsfilter "$TMP/lease.txt" > "$OUT/Documents/agreement.pdf" 2> /dev/null
 } > "$TMP/invoice.txt"
 cupsfilter "$TMP/invoice.txt" > "$OUT/Documents/scan_0042.pdf" 2> /dev/null
 
+# --- Pictures: macOS's own account pictures, renamed so their names give nothing away -----------------------------
+
+PICTURES="/System/Library/Templates/Data/Library/User Pictures"
+n=1001
+for picture in Animals/Zebra Animals/Penguin Animals/Owl Animals/Parrot Animals/Eagle Instruments/Guitar \
+  Instruments/Piano Instruments/Drum Sports/Tennis Sports/Basketball Nature/Cactus Nature/Lightning Nature/Snowflake \
+  Flowers/Sunflower Flowers/Lotus Fun/Fortune\ Cookie; do
+  cp "$PICTURES/$picture.heic" "$OUT/Pictures/IMG_$n.heic"
+  echo "IMG_$n.heic $picture" >> "$TMP/pictures.txt"
+  n=$((n + 1))
+done
+cp "$ROOT/engine/tests/reference/photo.jpg" "$OUT/Pictures/IMG_2001.jpg"   # green hills, a tree, the sun
+
+# --- Screenshots (named as macOS names them) --------------------------------------------------------------------------
+
+RENDER=(swift "$ROOT/scripts/testbed/render.swift")
+"${RENDER[@]}" screenshot "$OUT/Screenshots/Screenshot 2024-06-03 at 14.02.11.png" "Checkout" \
+  "Payment failed" "Your card was declined (error 05: do not honour)." "Try another card or pay by bank transfer." \
+  "Order total: EUR 84.95"
+"${RENDER[@]}" screenshot "$OUT/Screenshots/Screenshot 2024-06-05 at 09.47.30.png" "Terminal — zsh" \
+  "$ python train.py" "Traceback (most recent call last):" "  File \"train.py\", line 3, in <module>" \
+  "ModuleNotFoundError: No module named 'torch'"
+"${RENDER[@]}" screenshot "$OUT/Screenshots/Screenshot 2024-06-07 at 18.20.05.png" "Calendar" \
+  "Thursday 13 June" "09:00  Stand-up" "14:30  Dentist, Dr. Verhoeven, Oudegracht 12" "19:00  Football training"
+
+# --- A scanned page: a picture of text, no text layer -----------------------------------------------------------------
+
+"${RENDER[@]}" scan "$OUT/Documents/scan_0007.pdf" "Warranty certificate" \
+  "This washing machine is covered by a five-year warranty" "from the date of purchase. The warranty covers the" \
+  "motor, the drum and the electronics. It does not cover" "damage from limescale or misuse. Keep this certificate" \
+  "together with the receipt."
+
+# --- Recordings: spoken with macOS's voices ---------------------------------------------------------------------------
+
+say -o "$TMP/part1.aiff" "Welcome back to the show. Today we start with coffee. Coffee was first brewed in Yemen in \
+the fifteenth century, and it spread through the Ottoman empire to Europe. The first coffee house in London opened in \
+sixteen fifty two. Traders and writers met there to talk business and read the news, so much so that people called \
+them penny universities, because for the price of a cup you could listen to a lecture's worth of conversation. Over \
+the next centuries coffee became a global crop, grown in Brazil, Vietnam, Colombia and Ethiopia."
+say -o "$TMP/part2.aiff" "Let's move on to sleep, which is what most of you wrote in about. Adults need seven to nine \
+hours of sleep. The most important habit is waking up at the same time every day, even on weekends, because the body \
+clock anchors on the morning. Avoid caffeine in the afternoon, keep the bedroom cool and dark, and if you lie awake \
+for more than twenty minutes, get up and read something boring until you feel sleepy again. Naps are fine, but keep \
+them short and early in the afternoon."
+say -o "$TMP/part3.aiff" "Finally, the garden. If you grow tomatoes on a balcony, choose a large pot, at least twenty \
+litres, and give them full sun. Water deeply twice a week rather than a little every day. Pinch out the side shoots \
+on cordon varieties, and feed them with a potash rich fertiliser once the first flowers appear. That's all for today. \
+Thanks for listening, and see you next week."
+ffmpeg -loglevel error -i "$TMP/part1.aiff" -i "$TMP/part2.aiff" -i "$TMP/part3.aiff" \
+  -filter_complex "[0:a][1:a][2:a]concat=n=3:v=0:a=1" -c:a aac -b:a 96k "$OUT/Recordings/episode-12.m4a"
+say -o "$TMP/memo.aiff" "Note to self. On Saturday buy milk, eggs and flour for the pancakes, and pick up the \
+bicycle from the repair shop before five."
+ffmpeg -loglevel error -i "$TMP/memo.aiff" -c:a aac -b:a 64k "$OUT/Recordings/Recording 0003.m4a"
+say -v "Eddy (Spanish (Spain))" -o "$TMP/es.aiff" "Recordatorio: la reunión con el arquitecto es el martes a las \
+diez. Hay que llevar los planos de la cocina y el presupuesto de la reforma."
+ffmpeg -loglevel error -i "$TMP/es.aiff" "$OUT/Recordings/nota-voz.mp3"
+
+# --- A video: three shots (zebra, penguin, guitar) with a voice over --------------------------------------------------
+
+for animal in Zebra Penguin; do sips -s format png "$PICTURES/Animals/$animal.heic" --out "$TMP/$animal.png" > /dev/null; done
+sips -s format png "$PICTURES/Instruments/Guitar.heic" --out "$TMP/Guitar.png" > /dev/null
+say -o "$TMP/voice.aiff" "This is a short film about animals and music. First, a zebra on the savanna. Then a penguin \
+from the cold south. And to end, a guitar, because every film needs a soundtrack."
+ffmpeg -loglevel error -loop 1 -t 12 -i "$TMP/Zebra.png" -loop 1 -t 12 -i "$TMP/Penguin.png" \
+  -loop 1 -t 12 -i "$TMP/Guitar.png" -i "$TMP/voice.aiff" \
+  -filter_complex "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1[a];\
+[1:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1[b];\
+[2:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1[c];\
+[a][b][c]concat=n=3:v=1:a=0,format=yuv420p[v];[3:a]apad[s]" \
+  -map "[v]" -map "[s]" -c:v libx264 -r 24 -c:a aac -t 36 "$OUT/Movies/clip_0001.mp4"
+
+cp "$TMP/pictures.txt" "$OUT/.pictures.txt"   # which IMG is which (hidden: not indexed)
 echo "testbed: $OUT"
-find "$OUT" -type f | sort
+find "$OUT" -type f -not -name '.*' | sort
