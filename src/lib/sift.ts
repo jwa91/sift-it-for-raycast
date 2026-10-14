@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** Where the engine keeps its files (see engine/src/config.rs). */
-export const SIFT_HOME = join(homedir(), "Library/Application Support/Sift");
+export const SIFT_HOME = join(homedir(), "Library/Application Support/Sift It");
 
 export type Kind = "text" | "doc" | "pdf" | "image" | "screenshot" | "audio" | "video" | "code";
 export type Segment = "passage" | "page" | "picture" | "ocr" | "sound" | "frame";
@@ -78,7 +78,7 @@ export interface IndexerStatus {
   last_error?: string | null;
 }
 
-/** What indexing a folder means (`sift estimate`). */
+/** What indexing a folder means (`sift-it estimate`). */
 export interface Estimate {
   folder: string;
   files: number;
@@ -100,16 +100,16 @@ export function describeDuration(seconds: number): string {
   return `about ${Math.max(1, Math.round(seconds / 3600))} hours`;
 }
 
-/** The sift binary: the one set in preferences, else Homebrew's (brew install jwa91/tap/sift), else `make install`'s. */
+/** The sift-it binary: the one set in preferences, else Homebrew's (brew install jwa91/tap/sift-it), else `make install`'s. */
 export function siftBinary(): string | undefined {
   const { siftPath } = getPreferenceValues<Preferences>();
   const candidates = [
     siftPath?.trim().replace(/^~(?=\/)/, homedir()),
-    "/opt/homebrew/bin/sift",
-    join(homedir(), ".local/bin/sift"),
-    "/usr/local/bin/sift",
+    "/opt/homebrew/bin/sift-it",
+    join(homedir(), ".local/bin/sift-it"),
+    "/usr/local/bin/sift-it",
     // Where development builds used to be installed.
-    join(SIFT_HOME, "bin/sift"),
+    join(SIFT_HOME, "bin/sift-it"),
   ];
   return candidates.find((path): path is string => !!path && existsSync(path));
 }
@@ -117,18 +117,18 @@ export function siftBinary(): string | undefined {
 export class MissingEngineError extends Error {
   constructor() {
     super(
-      "sift isn't installed. Install it with Homebrew (brew install jwa91/tap/sift), or set its path in preferences.",
+      "sift-it isn't installed. Install it with Homebrew (brew install jwa91/tap/sift-it), or set its path in preferences.",
     );
   }
 }
 
-/** Runs `sift <args>` and returns its stdout. */
+/** Runs `sift-it <args>` and returns its stdout. */
 export function runSift(args: string[], timeout = 60_000): Promise<string> {
   const binary = siftBinary();
   if (!binary) return Promise.reject(new MissingEngineError());
   return new Promise((resolve, reject) => {
     execFile(binary, args, { timeout, maxBuffer: 64 << 20 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr.trim().replace(/^sift: /, "") || error.message));
+      if (error) reject(new Error(stderr.trim().replace(/^sift-it: /, "") || error.message));
       else resolve(stdout);
     });
   });
@@ -158,7 +158,7 @@ export function readIndexerStatus(): IndexerStatus | null {
   }
 }
 
-/** Starts a sift command that outlives Raycast's window (indexing, the model download). */
+/** Starts a sift-it command that outlives Raycast's window (indexing, the model download). */
 export function startDetached(args: string[]): void {
   const binary = siftBinary();
   if (!binary) throw new MissingEngineError();

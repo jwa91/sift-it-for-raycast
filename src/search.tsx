@@ -3,21 +3,26 @@ import {
   ActionPanel,
   Color,
   Icon,
+  Image,
   Keyboard,
   List,
   getPreferenceValues,
   openExtensionPreferences,
 } from "@raycast/api";
-import { useEffect, useMemo, useState } from "react";
-import { Engine, useEngine } from "./lib/engine";
-import { FILTERS, KIND_ICONS, KIND_LABELS, bytes, folderOf, highlight, locationLabel, timestamp } from "./lib/format";
+import { useEffect, useState } from "react";
+import { useEngine } from "./lib/engine";
+import { FILTERS, KIND_ICONS, KIND_LABELS, bytes, folderOf, locationLabel, timestamp } from "./lib/format";
+import { detailMarkdown } from "./lib/markdown";
 import { openHit, openTitle } from "./lib/open";
+import { Preview, SHOWN_AS_IS, previewKey, usePreviews } from "./lib/preview";
 import type { Hit, SearchResponse } from "./lib/sift";
 import Folders from "./folders";
 
-/** Picture formats Raycast shows as they are; the rest get a JPEG preview from the engine. */
-const SHOWN_AS_IS = /\.(jpe?g|png|gif|webp)$/i;
-
+/**
+ * One search for every kind of file. Describe what you're looking for or type exact words (in quotes to insist on
+ * them); the list holds documents, PDF pages, pictures, screenshots, and moments in recordings and videos together, and
+ * each result's preview is made for its kind.
+ */
 export default function Command() {
   const { engine, ready, meaning, error, missing } = useEngine();
   const [query, setQuery] = useState("");
@@ -26,7 +31,8 @@ export default function Command() {
   const [loading, setLoading] = useState(true);
   const [showingDetail, setShowingDetail] = useState(getPreferenceValues<Preferences>().showDetail ?? true);
   const [selected, setSelected] = useState<string | null>(null);
-  const previews = usePreviews(engine, response?.hits ?? [], selected, showingDetail);
+  const hits = response?.hits ?? [];
+  const previews = usePreviews(showingDetail ? engine : undefined, hits, selected);
 
   useEffect(() => {
     if (!engine || !ready) return;
@@ -44,20 +50,16 @@ export default function Command() {
     // `meaning` turning true re-runs the search with the model.
   }, [engine, ready, meaning, query, filter]);
 
-  const hits = response?.hits ?? [];
-  const strong = hits.filter((hit) => hit.strong);
-  const weak = hits.filter((hit) => !hit.strong);
-  const searching = query.trim().length > 0;
-
   if (missing) {
     return (
       <List>
         <List.EmptyView
           icon={Icon.Warning}
-          title="The Sift engine isn't installed"
-          description="Install it with Homebrew: brew install jwa91/tap/sift. Or set its path in preferences."
+          title="sift-it isn't installed"
+          description="Install it with Homebrew: brew install jwa91/tap/sift-it. Or set its path in preferences."
           actions={
             <ActionPanel>
+              <Action.CopyToClipboard title="Copy Install Command" content="brew install jwa91/tap/sift-it" />
               <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
             </ActionPanel>
           }
@@ -66,11 +68,25 @@ export default function Command() {
     );
   }
 
+  const searching = query.trim().length > 0;
+  const strong = hits.filter((hit) => hit.strong);
+  const weak = hits.filter((hit) => !hit.strong);
   const status = !searching
     ? "Recently changed"
     : meaning
       ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}`
-      : "Exact words only while the model loads…";
+      : "Exact words only, while the model loads…";
+  const toggleDetail = () => setShowingDetail((value) => !value);
+  const result = (hit: Hit) => (
+    <Result
+      key={hit.path}
+      hit={hit}
+      query={query}
+      preview={previews[previewKey(hit)]}
+      showingDetail={showingDetail}
+      onToggleDetail={toggleDetail}
+    />
+  );
 
   return (
     <List
@@ -78,11 +94,11 @@ export default function Command() {
       filtering={false}
       throttle
       onSearchTextChange={setQuery}
-      searchBarPlaceholder="Describe what you're looking for (code: to search code)…"
+      searchBarPlaceholder={'Describe it, or type exact words ("in quotes" to insist)…'}
       isShowingDetail={showingDetail && hits.length > 0}
       onSelectionChange={setSelected}
       searchBarAccessory={
-        <List.Dropdown tooltip="Kind of file" value={filter} onChange={setFilter} storeValue>
+        <List.Dropdown tooltip="Kind of file" value={filter} onChange={setFilter}>
           {FILTERS.map((f) => (
             <List.Dropdown.Item key={f.id} value={f.id} title={f.title} icon={f.icon} />
           ))}
@@ -90,15 +106,15 @@ export default function Command() {
       }
     >
       {error && !ready ? (
-        <List.EmptyView icon={Icon.Warning} title="The engine stopped" description={error} />
+        <List.EmptyView icon={Icon.Warning} title="sift-it stopped" description={error} />
       ) : (
         <List.EmptyView
           icon={searching ? Icon.MagnifyingGlass : Icon.Folder}
           title={searching ? "Nothing stands out" : "Nothing indexed yet"}
           description={
             searching
-              ? "No file matches that closely. Try other words, or describe it differently."
-              : "Add folders to search in Manage Folders."
+              ? "No file matches that closely. Describe it differently, or check the words in quotes."
+              : "Choose the folders to search in Manage Folders."
           }
           actions={
             <ActionPanel>
@@ -108,87 +124,61 @@ export default function Command() {
         />
       )}
       <List.Section title={searching ? "Best Matches" : "Recent"} subtitle={status}>
-        {strong.map((hit) => (
-          <Result
-            key={hit.path}
-            hit={hit}
-            query={query}
-            preview={previews[previewKey(hit)]}
-            showingDetail={showingDetail}
-            onToggleDetail={() => setShowingDetail((v) => !v)}
-          />
-        ))}
+        {strong.map(result)}
       </List.Section>
-      <List.Section title="Weaker Matches">
-        {weak.map((hit) => (
-          <Result
-            key={hit.path}
-            hit={hit}
-            query={query}
-            preview={previews[previewKey(hit)]}
-            showingDetail={showingDetail}
-            onToggleDetail={() => setShowingDetail((v) => !v)}
-          />
-        ))}
-      </List.Section>
+      <List.Section title="Weaker Matches">{weak.map(result)}</List.Section>
     </List>
   );
 }
 
-function previewKey(hit: Hit): string {
-  return `${hit.path}|${hit.loc ?? ""}`;
+/** The list icon: a picture result shows itself (once its preview is there), the rest their file's icon. */
+function iconFor(hit: Hit, preview?: Preview): Image.ImageLike {
+  const visual = hit.kind === "image" || hit.kind === "screenshot" || hit.kind === "video";
+  if (visual && preview?.image) return { source: preview.image, mask: Image.Mask.RoundedRectangle };
+  if ((hit.kind === "image" || hit.kind === "screenshot") && SHOWN_AS_IS.test(hit.path)) {
+    return { source: hit.path, mask: Image.Mask.RoundedRectangle };
+  }
+  return { fileIcon: hit.path };
 }
 
-function needsPreview(hit: Hit): boolean {
-  if (hit.kind === "pdf" || hit.kind === "video") return true;
-  return (hit.kind === "image" || hit.kind === "screenshot") && !SHOWN_AS_IS.test(hit.path);
-}
-
-/** Preview images for the selected result (and the first few), rendered by the engine once each. */
-function usePreviews(engine: Engine | undefined, hits: Hit[], selected: string | null, showing: boolean) {
-  const [previews, setPreviews] = useState<Record<string, string>>({});
-  const wanted = useMemo(() => {
-    const chosen = hits.filter((hit) => hit.path === selected || hits.indexOf(hit) < 3);
-    return chosen.filter(needsPreview);
-  }, [hits, selected]);
-  useEffect(() => {
-    if (!engine || !showing) return;
-    for (const hit of wanted) {
-      const key = previewKey(hit);
-      if (key in previews) continue;
-      setPreviews((current) => ({ ...current, [key]: "" }));
-      engine
-        .request<{ image: string }>("preview", { path: hit.path, kind: hit.kind, loc: hit.loc ?? undefined, size: 720 })
-        .then(({ image }) => setPreviews((current) => ({ ...current, [key]: image })))
-        .catch(() => undefined);
-    }
-  }, [engine, wanted, showing]);
-  return previews;
+/** Where the match is, short, for the list: "p. 3", "1:24", "line 12". */
+function shortLocation(hit: Hit): string | undefined {
+  const label = locationLabel(hit);
+  if (!label) return undefined;
+  return label
+    .replace(/^Page /, "p. ")
+    .replace(/^Line /, "line ")
+    .replace(/^Cell /, "cell ");
 }
 
 function Result(props: {
   hit: Hit;
   query: string;
-  preview?: string;
+  preview?: Preview;
   showingDetail: boolean;
   onToggleDetail: () => void;
 }) {
   const { hit, query, preview, showingDetail, onToggleDetail } = props;
-  const where = locationLabel(hit);
   const open = openTitle(hit);
+  const where = shortLocation(hit);
   const accessories: List.Item.Accessory[] = showingDetail
-    ? [{ icon: KIND_ICONS[hit.kind], tooltip: KIND_LABELS[hit.kind] }]
+    ? where
+      ? [{ tag: where, tooltip: "Where it matched" }]
+      : []
     : [
-        ...(hit.words ? [{ tag: { value: "words", color: Color.Green }, tooltip: "Has all of your words" }] : []),
-        { text: KIND_LABELS[hit.kind] },
+        ...(where ? [{ tag: where, tooltip: "Where it matched" }] : []),
+        ...(hit.words
+          ? [{ icon: { source: Icon.Text, tintColor: Color.Green }, tooltip: "Has your exact words" }]
+          : []),
+        { text: KIND_LABELS[hit.kind], icon: KIND_ICONS[hit.kind] },
         { date: new Date(hit.modified * 1000), tooltip: "Modified" },
       ];
   return (
     <List.Item
       id={hit.path}
       title={hit.name}
-      subtitle={showingDetail ? where : [where, folderOf(hit.path)].filter(Boolean).join("  ·  ")}
-      icon={{ fileIcon: hit.path }}
+      subtitle={showingDetail ? undefined : folderOf(hit.path)}
+      icon={iconFor(hit, preview)}
       accessories={accessories}
       quickLook={{ path: hit.path, name: hit.name }}
       detail={<ResultDetail hit={hit} query={query} preview={preview} />}
@@ -207,8 +197,15 @@ function Result(props: {
               shortcut={Keyboard.Shortcut.Common.Copy}
             />
             <Action.CopyToClipboard title="Copy Path" content={hit.path} shortcut={Keyboard.Shortcut.Common.CopyPath} />
+            {preview?.text && (
+              <Action.CopyToClipboard
+                title={hit.kind === "screenshot" ? "Copy Text on It" : "Copy Matching Text"}
+                content={preview.text}
+                shortcut={{ modifiers: ["cmd", "shift"], key: "t" }}
+              />
+            )}
             <Action
-              title={showingDetail ? "Hide Details" : "Show Details"}
+              title={showingDetail ? "Hide Preview" : "Show Preview"}
               icon={Icon.Sidebar}
               shortcut={{ modifiers: ["cmd"], key: "d" }}
               onAction={onToggleDetail}
@@ -228,22 +225,24 @@ function Result(props: {
   );
 }
 
-function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; preview?: string }) {
-  const picture = (hit.kind === "image" || hit.kind === "screenshot") && SHOWN_AS_IS.test(hit.path);
-  const image = preview || (picture ? hit.path : undefined);
-  const parts: string[] = [];
-  if (image) parts.push(`![](${encodeURI(`file://${image}`)}?raycast-height=260)`);
-  if (hit.excerpt) parts.push(highlight(hit.excerpt, query));
-  else if (hit.kind === "audio" && hit.loc != null) parts.push(`*Matched the sound at ${timestamp(hit.loc)}*`);
+function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; preview?: Preview }) {
   const info = hit.info ?? {};
   const where = locationLabel(hit);
+  const span =
+    (hit.segment === "sound" || hit.segment === "frame") && hit.loc != null
+      ? hit.loc_end != null
+        ? `${timestamp(hit.loc)}–${timestamp(hit.loc_end)}`
+        : timestamp(hit.loc)
+      : where;
+  const length = typeof info.duration === "number" ? timestamp(info.duration) : undefined;
   return (
     <List.Item.Detail
-      markdown={parts.join("\n\n")}
+      isLoading={!preview}
+      markdown={detailMarkdown(hit, preview, query)}
       metadata={
         <List.Item.Detail.Metadata>
           <List.Item.Detail.Metadata.Label title="Kind" text={KIND_LABELS[hit.kind]} icon={KIND_ICONS[hit.kind]} />
-          {where && <List.Item.Detail.Metadata.Label title="Match" text={where} />}
+          {span && <List.Item.Detail.Metadata.Label title="Match" text={span} />}
           {(hit.meaning || hit.words) && (
             <List.Item.Detail.Metadata.TagList title="Matched by">
               {hit.meaning && <List.Item.Detail.Metadata.TagList.Item text="meaning" color={Color.Blue} />}
@@ -253,11 +252,15 @@ function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; previe
           {typeof info.pages === "number" && (
             <List.Item.Detail.Metadata.Label title="Pages" text={String(info.pages)} />
           )}
-          {typeof info.duration === "number" && (
-            <List.Item.Detail.Metadata.Label title="Length" text={timestamp(info.duration)} />
-          )}
+          {length && <List.Item.Detail.Metadata.Label title="Length" text={length} />}
           {typeof info.width === "number" && typeof info.height === "number" && (
-            <List.Item.Detail.Metadata.Label title="Size" text={`${info.width} × ${info.height}`} />
+            <List.Item.Detail.Metadata.Label title="Dimensions" text={`${info.width} × ${info.height}`} />
+          )}
+          {typeof info.taken === "string" && (
+            <List.Item.Detail.Metadata.Label
+              title="Taken"
+              text={info.taken.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3")}
+            />
           )}
           <List.Item.Detail.Metadata.Separator />
           <List.Item.Detail.Metadata.Label title="Folder" text={folderOf(hit.path)} />

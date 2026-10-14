@@ -27,10 +27,9 @@ export const KIND_ICONS: Record<Kind, Icon> = {
 
 /** The kind filters in the search bar's dropdown. */
 export const FILTERS: { id: string; title: string; kinds: Kind[]; icon: Icon }[] = [
-  { id: "all", title: "All Files", kinds: [], icon: Icon.MagnifyingGlass },
-  { id: "documents", title: "Documents", kinds: ["text", "doc", "pdf"], icon: Icon.Document },
-  { id: "pictures", title: "Pictures", kinds: ["image", "screenshot"], icon: Icon.Image },
-  { id: "screenshots", title: "Screenshots", kinds: ["screenshot"], icon: Icon.Desktop },
+  { id: "all", title: "Everything", kinds: [], icon: Icon.MagnifyingGlass },
+  { id: "documents", title: "Documents and PDFs", kinds: ["text", "doc", "pdf"], icon: Icon.Document },
+  { id: "pictures", title: "Pictures and Screenshots", kinds: ["image", "screenshot"], icon: Icon.Image },
   { id: "recordings", title: "Recordings", kinds: ["audio"], icon: Icon.Microphone },
   { id: "videos", title: "Videos", kinds: ["video"], icon: Icon.FilmStrip },
   { id: "code", title: "Code", kinds: ["code"], icon: Icon.Code },

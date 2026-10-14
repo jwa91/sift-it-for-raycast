@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 import { useEffect, useState } from "react";
 import { siftBinary } from "./sift";
 
-/** An event from `sift serve` (a line without an id). */
+/** An event from `sift-it serve` (a line without an id). */
 export interface EngineEvent {
   event: "ready" | "encoder" | "exit";
   state?: "ready" | "unavailable";
@@ -14,7 +14,7 @@ export interface EngineEvent {
 type Waiting = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 
 /**
- * `sift serve`, the searcher as a process: it keeps the vectors in memory and the query encoder loaded while the
+ * `sift-it serve`, the searcher as a process: it keeps the vectors in memory and the query encoder loaded while the
  * command is open. One JSON request per line in, one reply per line out with the request's id.
  */
 export class Engine {
@@ -88,7 +88,7 @@ export interface EngineState {
   missing?: boolean;
 }
 
-/** Starts `sift serve` for as long as the command is open. */
+/** Starts `sift-it serve` for as long as the command is open. */
 export function useEngine(): EngineState {
   const [state, setState] = useState<EngineState>({ ready: false, meaning: false });
   useEffect(() => {

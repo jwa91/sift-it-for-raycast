@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "sift",
-  "title": "Sift",
-  "description": "Search your files by what's in them: documents, PDFs, photos, screenshots, recordings and videos. On-device, with EmbeddingGemma 2.",
+  "name": "sift-it",
+  "title": "Sift It",
+  "description": "Search your files by what's in them: describe it or type exact words, and find documents, PDF pages, photos, screenshots, and moments in recordings and videos. On-device, with EmbeddingGemma 2.",
   "icon": "icon.png",
   "author": "jwa",
   "categories": [
@@ -13,28 +13,21 @@
     {
       "name": "search",
       "title": "Search Files",
-      "subtitle": "Sift",
-      "description": "Describe what you're looking for: find documents, PDF pages, pictures, screenshots and moments in recordings and videos by what's in them.",
-      "mode": "view"
-    },
-    {
-      "name": "pictures",
-      "title": "Search Pictures",
-      "subtitle": "Sift",
-      "description": "Find photos, screenshots and video moments by what they show, in a grid.",
+      "subtitle": "Sift It",
+      "description": "Describe what you're looking for, or type exact words (in quotes to insist): documents, PDF pages, pictures, screenshots, and moments in recordings and videos, in one list with a preview for each.",
       "mode": "view"
     },
     {
       "name": "folders",
       "title": "Manage Folders",
-      "subtitle": "Sift",
+      "subtitle": "Sift It",
       "description": "Choose the folders Sift searches, download the model, and control background indexing.",
       "mode": "view"
     },
     {
       "name": "status",
-      "title": "Sift Status",
-      "subtitle": "Sift",
+      "title": "Indexing Status",
+      "subtitle": "Sift It",
       "description": "How indexing is going, in the menu bar.",
       "mode": "menu-bar",
       "interval": "1m"
@@ -46,8 +39,8 @@
       "type": "textfield",
       "required": false,
       "title": "Engine",
-      "description": "Path to the sift binary. Leave empty to use Homebrew's (brew install jwa91/tap/sift).",
-      "placeholder": "/opt/homebrew/bin/sift"
+      "description": "Path to the sift-it binary. Leave empty to use Homebrew's (brew install jwa91/tap/sift-it).",
+      "placeholder": "/opt/homebrew/bin/sift-it"
     },
     {
       "name": "editor",

@@ -3,7 +3,7 @@ import { usePromise } from "@raycast/utils";
 import { SIFT_HOME, getStatus, runSift, startDetached } from "./lib/sift";
 import { describeIndexer } from "./folders";
 
-/** Sift in the menu bar: how indexing is going, and a way to pause it. */
+/** Sift It in the menu bar: how indexing is going, and a way to pause it. */
 export default function Command() {
   const { data: status, isLoading, revalidate } = usePromise(getStatus);
   const indexer = status?.indexer;
@@ -16,7 +16,7 @@ export default function Command() {
     <MenuBarExtra
       icon={{ source: { light: "menubar.png", dark: "menubar@dark.png" } }}
       title={title}
-      tooltip="Sift"
+      tooltip="Sift It"
       isLoading={isLoading}
     >
       <MenuBarExtra.Section>
@@ -33,11 +33,6 @@ export default function Command() {
           title="Search Files"
           icon={Icon.MagnifyingGlass}
           onAction={() => launchCommand({ name: "search", type: LaunchType.UserInitiated })}
-        />
-        <MenuBarExtra.Item
-          title="Search Pictures"
-          icon={Icon.Image}
-          onAction={() => launchCommand({ name: "pictures", type: LaunchType.UserInitiated })}
         />
         <MenuBarExtra.Item
           title="Manage Folders…"

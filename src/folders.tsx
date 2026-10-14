@@ -33,7 +33,7 @@ export default function Folders() {
   if (error) {
     return (
       <List>
-        <List.EmptyView icon={Icon.Warning} title="Can't reach the Sift engine" description={error.message} />
+        <List.EmptyView icon={Icon.Warning} title="Can't reach the Sift It engine" description={error.message} />
       </List>
     );
   }
@@ -132,7 +132,7 @@ export default function Folders() {
 
 function describeFolder(e?: { files: number; seconds: number; unreadable: boolean }): string | undefined {
   if (!e) return undefined;
-  if (e.unreadable) return "Can't be read: is it there, and may Sift read it?";
+  if (e.unreadable) return "Can't be read: is it there, and may Sift It read it?";
   return `${e.files.toLocaleString()} files · ${describeDuration(e.seconds)} to index from scratch`;
 }
 
@@ -371,7 +371,7 @@ function AddFolders(props: { onDone: () => void; exclude?: boolean }) {
         text={
           props.exclude
             ? "Folders inside a searched folder to leave out."
-            : "Sift reads the documents, PDFs, pictures, recordings and videos in these folders. It never changes, moves or uploads them."
+            : "Sift It reads the documents, PDFs, pictures, recordings and videos in these folders. It never changes, moves or uploads them."
         }
       />
       <Form.FilePicker
