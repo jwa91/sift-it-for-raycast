@@ -9,7 +9,7 @@ import {
   getPreferenceValues,
   openExtensionPreferences,
 } from "@raycast/api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEngine } from "./lib/engine";
 import { FILTERS, KIND_ICONS, KIND_LABELS, bytes, folderOf, locationLabel, timestamp } from "./lib/format";
 import { detailMarkdown } from "./lib/markdown";
@@ -31,6 +31,9 @@ export default function Command() {
   const [loading, setLoading] = useState(true);
   const [showingDetail, setShowingDetail] = useState(getPreferenceValues<Preferences>().showDetail ?? true);
   const [selected, setSelected] = useState<string | null>(null);
+  // The query whose results are in the list: a new one starts at its first result, the same one answered again (with
+  // meaning, once the model is there) keeps the selection.
+  const answered = useRef<string | undefined>(undefined);
   const hits = response?.hits ?? [];
   const previews = usePreviews(showingDetail ? engine : undefined, hits, selected);
   const thumbnails = useThumbnails(ready ? engine : undefined, hits);
@@ -42,7 +45,15 @@ export default function Command() {
     const kinds = FILTERS.find((f) => f.id === filter)?.kinds ?? [];
     engine
       .request<SearchResponse>("search", { q: query, kinds, limit: 50, prefix_last: true })
-      .then((result) => current && setResponse(result))
+      .then((result) => {
+        if (!current) return;
+        setResponse(result);
+        const asked = `${filter}|${query}`;
+        if (answered.current !== asked) {
+          answered.current = asked;
+          setSelected(result.hits[0]?.path ?? null);
+        }
+      })
       // A search that fails keeps the results that are there (an engine that stopped says so on its own).
       .catch(() => undefined)
       .finally(() => current && setLoading(false));
@@ -99,6 +110,7 @@ export default function Command() {
       onSearchTextChange={setQuery}
       searchBarPlaceholder={'Describe it, or type exact words ("in quotes" to insist)…'}
       isShowingDetail={showingDetail && hits.length > 0}
+      selectedItemId={selected ?? undefined}
       onSelectionChange={setSelected}
       searchBarAccessory={
         <List.Dropdown tooltip="Kind of file" value={filter} onChange={setFilter}>

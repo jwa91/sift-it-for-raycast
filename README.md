@@ -29,7 +29,8 @@ One search bar for everything:
 
 - **Describe it**: "the clause about pets in the lease", "a dog on the beach", "where they talk about sleep". Matches
   by meaning, across languages too.
-- **Type the words**: invoice numbers, error codes, names. A result with all of your words gets a boost.
+- **Type the words**: invoice numbers, error codes, names. Numbers and codes, which no model reads exactly, count
+  heavily; ordinary words decide between results that mean about the same.
 - **Quote them to insist**: `"INV-2024-0113" invoice` only shows files with that exact text, ranked by the rest.
 - **`code:`** searches code (when code reading is on in Manage Folders).
 
@@ -44,8 +45,8 @@ Each result's preview fits its kind:
 | PDF | the page that matched, and its text with your words in bold | opens Preview at that page |
 | Document | the passage that matched, your words in bold | opens it |
 | Recording | its waveform with the 30 seconds that matched highlighted | plays from that moment (QuickTime) |
-| Video | the frame at the moment (and the waveform, when it matched by sound) | plays from that moment |
-| Code | the code that matched, highlighted | opens your editor at the line |
+| Video | the frame at the moment, also as its icon in the list (and the waveform, when it matched by sound) | plays from that moment |
+| Code | the code that matched, numbered from its line | opens your editor at the line |
 
 ⌘↩ shows it in Finder, ⌘Y Quick Look, ⌘C copies the file, ⇧⌘C the path, ⇧⌘T the text on it, ⌘D hides the preview.
 

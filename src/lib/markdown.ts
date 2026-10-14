@@ -45,6 +45,25 @@ const LANGUAGES: Record<string, string> = {
   cs: "csharp",
 };
 
+/**
+ * The code that matched, numbered, from a little above its first line with the query's words, as `sift-it` shows it in
+ * the terminal. The result's line is that line (search moves it there); a notebook's is its cell, so it isn't numbered.
+ */
+function numberedCode(text: string, hit: Hit, query: string): string {
+  const lines = text.replace(/\s+$/, "").split("\n");
+  const telling = wordsOf(query).filter((word) => word.length > 3 || /\d/.test(word));
+  const focus = Math.max(
+    0,
+    lines.findIndex((line) => telling.some((word) => line.toLowerCase().includes(word))),
+  );
+  const start = Math.max(0, focus - 2);
+  const shown = lines.slice(start, start + 60);
+  if (hit.loc == null || hit.path.endsWith(".ipynb")) return shown.join("\n");
+  const first = Math.round(hit.loc) - focus + start;
+  const width = String(first + shown.length).length;
+  return shown.map((line, i) => `${String(first + i).padStart(width)} │ ${line}`).join("\n");
+}
+
 function codeBlock(text: string, path: string): string {
   const extension = extname(path).slice(1).toLowerCase();
   const language = LANGUAGES[extension] ?? extension;
@@ -91,7 +110,7 @@ export function detailMarkdown(hit: Hit, preview: Preview | undefined, query: st
       );
       break;
     case "code":
-      if (text) parts.push(codeBlock(textWindow(text, query, 2400), hit.path));
+      if (text) parts.push(codeBlock(numberedCode(text, hit, query), hit.path));
       break;
     default:
       if (text) parts.push(words(text));
