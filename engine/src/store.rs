@@ -244,6 +244,31 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    /// The files at a path or under it.
+    pub fn files_under(&self, path: &Path) -> Result<Vec<FileRow>> {
+        let exact = path.to_string_lossy().to_string();
+        let prefix = format!("{}/", exact.trim_end_matches('/'));
+        let mut statement = self.conn.prepare(
+            "SELECT id, path, kind, size, modified, state FROM files WHERE path = ?1 OR substr(path, 1, ?2) = ?3",
+        )?;
+        let rows = statement.query_map(params![exact, prefix.chars().count() as i64, prefix], |row| {
+            Ok(FileRow {
+                id: row.get(0)?,
+                path: PathBuf::from(row.get::<_, String>(1)?),
+                kind: Kind::parse(&row.get::<_, String>(2)?).unwrap_or(Kind::Text),
+                size: row.get::<_, i64>(3)? as u64,
+                modified: row.get(4)?,
+                state: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn pending_count(&self) -> Result<usize> {
+        Ok(self.conn.query_row("SELECT COUNT(*) FROM files WHERE state = 'pending'", [], |row| row.get::<_, i64>(0))?
+            as usize)
+    }
+
     /// A new or changed file: (re)queued, with what was indexed from it before gone.
     pub fn queue(&self, found: &Found, existing: Option<i64>) -> Result<i64> {
         let path = found.path.to_string_lossy();
@@ -298,17 +323,36 @@ impl Store {
         Ok(rows)
     }
 
-    /// Writes a file's segments and marks it done, in one transaction.
-    pub fn finish_file(&mut self, file_id: i64, segments: &[NewSegment], info: &serde_json::Value) -> Result<()> {
+    /// Writes a file's segments and marks it done, in one transaction. Nothing is written (false) when the file left
+    /// the index or changed since it was handed out (`row`): it's been queued again.
+    pub fn finish_file(&mut self, row: &FileRow, segments: &[NewSegment], info: &serde_json::Value) -> Result<bool> {
+        self.write_file(row, segments, info, None)
+    }
+
+    /// A file that couldn't be read: still findable by name, and not tried again until it changes.
+    pub fn fail_file(&mut self, row: &FileRow, error: &str) -> Result<bool> {
+        self.write_file(row, &[], &serde_json::json!({}), Some(error))
+    }
+
+    fn write_file(
+        &mut self,
+        row: &FileRow,
+        segments: &[NewSegment],
+        info: &serde_json::Value,
+        error: Option<&str>,
+    ) -> Result<bool> {
         let tx = self.conn.transaction()?;
-        let path: Option<String> =
-            tx.query_row("SELECT path FROM files WHERE id = ?1", [file_id], |row| row.get(0)).optional()?;
-        // The file left the index while it was being read.
-        let Some(path) = path else { return Ok(()) };
-        let name = name_words(Path::new(&path));
+        let current: Option<(i64, f64)> = tx
+            .query_row("SELECT size, modified FROM files WHERE id = ?1", [row.id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        match current {
+            Some((size, modified)) if size as u64 == row.size && (modified - row.modified).abs() < 0.001 => {}
+            _ => return Ok(false),
+        }
+        let name = name_words(&row.path);
         {
-            tx.execute("DELETE FROM words WHERE rowid IN (SELECT id FROM segments WHERE file_id = ?1)", [file_id])?;
-            tx.execute("DELETE FROM segments WHERE file_id = ?1", [file_id])?;
+            tx.execute("DELETE FROM words WHERE rowid IN (SELECT id FROM segments WHERE file_id = ?1)", [row.id])?;
+            tx.execute("DELETE FROM segments WHERE file_id = ?1", [row.id])?;
             let mut insert = tx.prepare(
                 "INSERT INTO segments (file_id, segment, loc, loc_end, text, vector) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
@@ -320,38 +364,27 @@ impl Store {
                     }
                 }
                 insert.execute(params![
-                    file_id,
+                    row.id,
                     segment.segment.as_str(),
                     segment.loc,
                     segment.loc_end,
                     segment.text,
                     segment.vector.as_deref().map(vector_to_blob),
                 ])?;
-                let id = tx.last_insert_rowid();
-                words.execute(params![id, name, segment.text.as_deref().unwrap_or("")])?;
+                words.execute(params![tx.last_insert_rowid(), name, segment.text.as_deref().unwrap_or("")])?;
             }
             // A file with nothing in it is still findable by its name.
             if segments.is_empty() {
-                tx.execute(
-                    "INSERT INTO segments (file_id, segment, loc, loc_end, text, vector) VALUES (?1, 'passage', NULL, NULL, NULL, NULL)",
-                    [file_id],
-                )?;
+                insert.execute(params![row.id, "passage", None::<f64>, None::<f64>, None::<String>, None::<Vec<u8>>])?;
                 words.execute(params![tx.last_insert_rowid(), name, ""])?;
             }
         }
         tx.execute(
-            "UPDATE files SET state = 'done', error = NULL, info = ?2, indexed_at = ?3 WHERE id = ?1",
-            params![file_id, info.to_string(), now()],
+            "UPDATE files SET state = ?2, error = ?3, info = ?4, indexed_at = ?5 WHERE id = ?1",
+            params![row.id, if error.is_some() { "failed" } else { "done" }, error, info.to_string(), now()],
         )?;
         tx.commit()?;
-        Ok(())
-    }
-
-    /// A file that couldn't be read: still findable by name, and not tried again until it changes.
-    pub fn fail_file(&mut self, file_id: i64, error: &str) -> Result<()> {
-        self.finish_file(file_id, &[], &serde_json::json!({}))?;
-        self.conn.execute("UPDATE files SET state = 'failed', error = ?2 WHERE id = ?1", params![file_id, error])?;
-        Ok(())
+        Ok(true)
     }
 
     pub fn stats(&self) -> Result<Stats> {

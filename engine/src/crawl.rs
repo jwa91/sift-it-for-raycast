@@ -159,11 +159,7 @@ fn walk(folder: &Path, rules: &Rules, in_project: bool, found: &mut Vec<Found>) 
             continue;
         }
         if file_type.is_dir() {
-            let extension = extension_of(&path);
-            if SKIPPED_FOLDERS.contains(&name.as_ref())
-                || (in_project && SKIPPED_PROJECT_FOLDERS.contains(&name.as_ref()))
-                || PACKAGE_EXTENSIONS.contains(&extension.as_str())
-            {
+            if is_skipped_folder(&path, in_project) {
                 continue;
             }
             walk(&path, rules, in_project, found);
@@ -173,6 +169,70 @@ fn walk(folder: &Path, rules: &Rules, in_project: bool, found: &mut Vec<Found>) 
             }
         }
     }
+}
+
+/// A folder never entered: dependencies, caches, packages, a project's build output.
+fn is_skipped_folder(path: &Path, in_project: bool) -> bool {
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    name.starts_with('.')
+        || SKIPPED_FOLDERS.contains(&name.as_str())
+        || (in_project && SKIPPED_PROJECT_FOLDERS.contains(&name.as_str()))
+        || PACKAGE_EXTENSIONS.contains(&extension_of(path).as_str())
+}
+
+fn is_project(folder: &Path) -> bool {
+    PROJECT_MARKERS.iter().any(|marker| folder.join(marker).exists())
+}
+
+/// What a change at one path means for the index.
+#[derive(Debug)]
+pub enum Rescan {
+    /// Not in any chosen folder.
+    Outside,
+    /// In a chosen folder, but somewhere never read (a hidden or skipped folder, an excluded one).
+    Skipped,
+    /// What's there now: the file itself, everything in a folder, or nothing when it's gone.
+    Found(Vec<Found>),
+}
+
+/// Looks again at one changed path (a file, or a folder and all in it), by the same rules as a full crawl.
+pub fn rescan(config: &Config, path: &Path) -> Rescan {
+    let Some(root) = config.folders.iter().filter(|root| path.starts_with(root)).max_by_key(|root| root.as_os_str().len())
+    else {
+        return Rescan::Outside;
+    };
+    if config.excluded.iter().any(|excluded| path.starts_with(excluded)) {
+        return Rescan::Skipped;
+    }
+    // The folders between the root and the path: none may be skipped, and any may make it a code project.
+    let mut in_project = false;
+    let mut folder = root.clone();
+    for component in path.strip_prefix(root).unwrap_or(Path::new("")).parent().into_iter().flat_map(|p| p.components()) {
+        in_project |= is_project(&folder);
+        folder.push(component);
+        if is_skipped_folder(&folder, in_project) {
+            return Rescan::Skipped;
+        }
+    }
+    in_project |= is_project(&folder);
+    let excluded_extensions: Vec<String> =
+        config.excluded_extensions.iter().map(|e| e.trim_start_matches('.').to_lowercase()).collect();
+    let rules = Rules { config, excluded_extensions: &excluded_extensions };
+    let Ok(metadata) = std::fs::symlink_metadata(path) else { return Rescan::Found(Vec::new()) };
+    let mut found = Vec::new();
+    if metadata.is_dir() {
+        if path != root.as_path() && is_skipped_folder(path, in_project) {
+            return Rescan::Skipped;
+        }
+        walk(path, &rules, in_project, &mut found);
+    } else if metadata.is_file() {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        if name.starts_with('.') {
+            return Rescan::Skipped;
+        }
+        found.extend(consider(path, &name, &rules, in_project));
+    }
+    Rescan::Found(found)
 }
 
 /// The file, if it's one to index.

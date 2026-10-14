@@ -1,5 +1,6 @@
 mod av;
 mod config;
+mod daemon;
 mod crawl;
 mod embedder;
 mod eval;
@@ -8,11 +9,13 @@ mod indexer;
 mod llama;
 mod mac;
 mod models;
+mod power;
 mod preview;
 mod readers;
 mod search;
 mod selftest;
 mod serve;
+mod service;
 mod store;
 
 use anyhow::{bail, Result};
@@ -63,6 +66,13 @@ enum Command {
     },
     /// Answer searches over stdin/stdout (JSON lines), for the Raycast extension
     Serve,
+    /// Keep the index up to date in the background, watching the folders for changes
+    Daemon,
+    /// The background indexer as a LaunchAgent (starts at login)
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
     /// What's in the index
     Status {
         #[arg(long)]
@@ -104,6 +114,18 @@ enum FolderAction {
 }
 
 #[derive(Subcommand)]
+enum ServiceAction {
+    /// Install and start it
+    Install,
+    /// Stop and remove it
+    Uninstall,
+    /// Whether it's installed and running
+    Status,
+    /// Print the LaunchAgent plist it would install
+    Plist,
+}
+
+#[derive(Subcommand)]
 enum ModelAction {
     /// Whether the model files are there
     Status,
@@ -130,6 +152,16 @@ fn run(cli: Cli) -> Result<()> {
             search_once(&words.join(" "), &kind, limit, words_only, json)
         }
         Command::Serve => serve::serve(&config::index_path(), &config::models_dir()),
+        Command::Daemon => daemon::run(),
+        Command::Service { action } => match action {
+            ServiceAction::Install => service::install(),
+            ServiceAction::Uninstall => service::uninstall(),
+            ServiceAction::Status => service::status(),
+            ServiceAction::Plist => {
+                print!("{}", service::plist()?);
+                Ok(())
+            }
+        },
         Command::Status { json } => status(json),
         Command::Model { action } => match action {
             ModelAction::Status => {
@@ -245,6 +277,15 @@ fn index(json: bool, reindex: bool) -> Result<()> {
     if config.folders.is_empty() {
         bail!("no folders to index: add some with `sift folders add <folder>`");
     }
+    // Two indexers would read the same files: let the running one do it.
+    if let Some(pid) = daemon::running_pid() {
+        if reindex {
+            bail!("the background indexer is running (pid {pid}); stop it before --reindex");
+        }
+        unsafe { libc::kill(pid, libc::SIGUSR1) };
+        eprintln!("the background indexer (pid {pid}) is looking for changes now");
+        return Ok(());
+    }
     let store = store::Store::open(&config::index_path())?;
     if reindex {
         store.requeue_all()?;
@@ -260,6 +301,7 @@ fn index(json: bool, reindex: bool) -> Result<()> {
                 "{files} files in the folders ({added} new, {changed} changed, {removed} gone), {pending} to index ({ms} ms)"
             ),
             indexer::Event::Started { pending } => eprintln!("indexing {pending} files…"),
+            indexer::Event::Queued { count } => eprintln!("{count} more files joined the queue"),
             indexer::Event::File { path, segments, vectors, ms, .. } => {
                 eprintln!("  {path}: {segments} segments, {vectors} vectors, {ms} ms")
             }
@@ -271,7 +313,7 @@ fn index(json: bool, reindex: bool) -> Result<()> {
     };
     let sync = indexer.sync(&config)?;
     report(sync);
-    indexer.index_pending(&mut report, &|| false)
+    indexer.index_pending(&config, &mut report, &|| false, &mut Vec::new)
 }
 
 fn search_once(q: &str, kinds: &[String], limit: usize, words_only: bool, json: bool) -> Result<()> {
