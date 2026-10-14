@@ -3,6 +3,7 @@ mod config;
 mod daemon;
 mod crawl;
 mod embedder;
+mod estimate;
 mod eval;
 mod imaging;
 mod indexer;
@@ -41,6 +42,12 @@ enum Command {
     },
     /// Change an option: include-code, index-on-battery (true or false), exclude-ext (comma-separated)
     Config { key: Option<String>, value: Option<String> },
+    /// How many files these folders hold, and about how long indexing them takes
+    Estimate {
+        folders: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Bring the index up to date with the folders, then exit
     Index {
         /// JSON lines instead of text
@@ -163,6 +170,24 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Folders { action } => folders(action),
         Command::Config { key, value } => set_option(key, value),
+        Command::Estimate { folders, json } => {
+            let config = Config::load()?;
+            let folders: Vec<PathBuf> = if folders.is_empty() {
+                config.folders.clone()
+            } else {
+                folders.iter().map(|f| config::expand(f)).collect()
+            };
+            let estimates: Vec<_> = folders.into_iter().map(|folder| estimate::estimate(&config, folder)).collect();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&estimates)?);
+            } else {
+                for e in &estimates {
+                    let kinds = e.by_kind.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", ");
+                    println!("{}: {} files ({kinds}), {}", e.folder.display(), e.files, estimate::describe(e.seconds));
+                }
+            }
+            Ok(())
+        }
         Command::Index { json, reindex } => index(json, reindex),
         Command::Search { words, kind, limit, words_only, json } => {
             search_once(&words.join(" "), &kind, limit, words_only, json)

@@ -78,6 +78,28 @@ export interface IndexerStatus {
   last_error?: string | null;
 }
 
+/** What indexing a folder means (`sift estimate`). */
+export interface Estimate {
+  folder: string;
+  files: number;
+  bytes: number;
+  by_kind: Record<string, number>;
+  seconds: number;
+  unreadable: boolean;
+}
+
+export async function estimate(folders: string[]): Promise<Estimate[]> {
+  if (folders.length === 0) return [];
+  return JSON.parse(await runSift(["estimate", "--json", ...folders], 300_000)) as Estimate[];
+}
+
+/** "about 12 minutes", as the engine says it. */
+export function describeDuration(seconds: number): string {
+  if (seconds < 60) return "under a minute";
+  if (seconds < 90 * 60) return `about ${Math.max(1, Math.round(seconds / 60))} minutes`;
+  return `about ${Math.max(1, Math.round(seconds / 3600))} hours`;
+}
+
 /** The sift binary: the one set in preferences, else where scripts/install.sh puts it, else on the usual paths. */
 export function siftBinary(): string | undefined {
   const { siftPath } = getPreferenceValues<Preferences>();

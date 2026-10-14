@@ -231,3 +231,9 @@ pub fn signature(image: &CGImage) -> Result<Vec<u8>> {
     drop(context);
     Ok(rgbx.chunks_exact(4).map(|p| ((p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000) as u8).collect())
 }
+
+/// How many pages a PDF has (without reading them).
+pub fn pdf_pages(path: &Path) -> Option<usize> {
+    let document = CGPDFDocument::with_url(Some(&*url(path).ok()?))?;
+    Some(CGPDFDocument::number_of_pages(Some(&document)))
+}

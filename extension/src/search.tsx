@@ -229,7 +229,8 @@ function Result(props: {
 }
 
 function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; preview?: string }) {
-  const image = preview || (needsPreview(hit) ? undefined : hit.path);
+  const picture = (hit.kind === "image" || hit.kind === "screenshot") && SHOWN_AS_IS.test(hit.path);
+  const image = preview || (picture ? hit.path : undefined);
   const parts: string[] = [];
   if (image) parts.push(`![](${encodeURI(`file://${image}`)}?raycast-height=260)`);
   if (hit.excerpt) parts.push(highlight(hit.excerpt, query));

@@ -42,6 +42,12 @@ fn asset(path: &Path) -> Retained<AVURLAsset> {
     unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) }
 }
 
+/// The file's length in seconds (0 when it can't tell).
+pub fn duration(path: &Path) -> f64 {
+    let seconds = unsafe { asset(path).duration().seconds() };
+    if seconds.is_finite() { seconds.max(0.0) } else { 0.0 }
+}
+
 pub fn has_audio(path: &Path) -> bool {
     let Some(audio) = (unsafe { AVMediaTypeAudio }) else { return false };
     unsafe { asset(path).tracksWithMediaType(audio).count() > 0 }

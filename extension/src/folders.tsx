@@ -12,11 +12,20 @@ import {
   showToast,
   useNavigation,
 } from "@raycast/api";
-import { showFailureToast, usePromise } from "@raycast/utils";
+import { showFailureToast, useCachedPromise, usePromise } from "@raycast/utils";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { bytes, shortPath } from "./lib/format";
-import { IndexerStatus, Status, getStatus, runSift, siftBinary, startDetached } from "./lib/sift";
+import {
+  IndexerStatus,
+  Status,
+  describeDuration,
+  estimate,
+  getStatus,
+  runSift,
+  siftBinary,
+  startDetached,
+} from "./lib/sift";
 
 export default function Folders() {
   const { data: status, isLoading, revalidate, error } = usePromise(getStatus);
@@ -30,6 +39,8 @@ export default function Folders() {
   }
 
   const config = status?.config;
+  const { data: estimates } = useCachedPromise(estimate, [config?.folders ?? []], { execute: !!config });
+  const estimateOf = (folder: string) => estimates?.find((e) => e.folder === folder);
   return (
     <List isLoading={isLoading} navigationTitle="Manage Folders" searchBarPlaceholder="Filter folders">
       <List.Section title="Folders to Search" subtitle={config ? `${config.folders.length}` : undefined}>
@@ -37,6 +48,7 @@ export default function Folders() {
           <List.Item
             key={folder}
             title={shortPath(folder)}
+            subtitle={describeFolder(estimateOf(folder))}
             icon={{ fileIcon: folder }}
             accessories={excludedUnder(folder, config.excluded)}
             actions={
@@ -116,6 +128,12 @@ export default function Folders() {
       )}
     </List>
   );
+}
+
+function describeFolder(e?: { files: number; seconds: number; unreadable: boolean }): string | undefined {
+  if (!e) return undefined;
+  if (e.unreadable) return "Can't be read: is it there, and may Sift read it?";
+  return `${e.files.toLocaleString()} files · ${describeDuration(e.seconds)} to index from scratch`;
 }
 
 function excludedUnder(folder: string, excluded: string[]): List.Item.Accessory[] {
@@ -331,6 +349,19 @@ function AddFolders(props: { onDone: () => void; exclude?: boolean }) {
                 props.onDone,
               );
               pop();
+              if (!props.exclude) {
+                const toast = await showToast({ style: Toast.Style.Animated, title: "Counting the files…" });
+                try {
+                  const estimates = await estimate(values.folders);
+                  const files = estimates.reduce((sum, e) => sum + e.files, 0);
+                  const seconds = estimates.reduce((sum, e) => sum + e.seconds, 0);
+                  toast.style = Toast.Style.Success;
+                  toast.title = `${files.toLocaleString()} files to index`;
+                  toast.message = `${describeDuration(seconds)} for the first pass`;
+                } catch {
+                  await toast.hide();
+                }
+              }
             }}
           />
         </ActionPanel>
