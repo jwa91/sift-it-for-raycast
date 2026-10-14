@@ -100,22 +100,25 @@ export function describeDuration(seconds: number): string {
   return `about ${Math.max(1, Math.round(seconds / 3600))} hours`;
 }
 
-/** The sift binary: the one set in preferences, else where scripts/install.sh puts it, else on the usual paths. */
+/** The sift binary: the one set in preferences, else Homebrew's (brew install jwa91/tap/sift), else `make install`'s. */
 export function siftBinary(): string | undefined {
   const { siftPath } = getPreferenceValues<Preferences>();
   const candidates = [
     siftPath?.trim().replace(/^~(?=\/)/, homedir()),
-    join(SIFT_HOME, "bin/sift"),
-    join(homedir(), ".local/bin/sift"),
     "/opt/homebrew/bin/sift",
+    join(homedir(), ".local/bin/sift"),
     "/usr/local/bin/sift",
+    // Where development builds used to be installed.
+    join(SIFT_HOME, "bin/sift"),
   ];
   return candidates.find((path): path is string => !!path && existsSync(path));
 }
 
 export class MissingEngineError extends Error {
   constructor() {
-    super("The sift engine isn't installed. Run scripts/install.sh in the repository, or set its path in preferences.");
+    super(
+      "sift isn't installed. Install it with Homebrew (brew install jwa91/tap/sift), or set its path in preferences.",
+    );
   }
 }
 

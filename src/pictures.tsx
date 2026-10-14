@@ -44,7 +44,7 @@ export default function Command() {
         <Grid.EmptyView
           icon={Icon.Warning}
           title="The Sift engine isn't installed"
-          description="Run scripts/install.sh in the Sift repository, or set the engine's path in preferences."
+          description="Install it with Homebrew: brew install jwa91/tap/sift. Or set its path in preferences."
           actions={
             <ActionPanel>
               <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />

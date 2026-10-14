@@ -46,8 +46,8 @@
       "type": "textfield",
       "required": false,
       "title": "Engine",
-      "description": "Path to the sift binary. Leave empty to use the one scripts/install.sh installs.",
-      "placeholder": "~/Library/Application Support/Sift/bin/sift"
+      "description": "Path to the sift binary. Leave empty to use Homebrew's (brew install jwa91/tap/sift).",
+      "placeholder": "/opt/homebrew/bin/sift"
     },
     {
       "name": "editor",

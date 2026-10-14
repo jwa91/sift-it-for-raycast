@@ -1,9 +1,9 @@
-// Draws the extension's icons into extension/assets: the command icon (512 px) and the menu bar icon (light and dark).
+// Draws the extension's icons into assets/: the command icon (512 px) and the menu bar icon (light and dark).
 //   swift scripts/make-icons.swift
 import AppKit
 
 let root = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().deletingLastPathComponent()
-let assets = root.appendingPathComponent("extension/assets")
+let assets = root.appendingPathComponent("assets")
 try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
 
 func png(_ size: Int, _ draw: (CGRect) -> Void) -> Data {
