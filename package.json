@@ -8,6 +8,9 @@
   "categories": [
     "Productivity"
   ],
+  "platforms": [
+    "macOS"
+  ],
   "license": "MIT",
   "commands": [
     {
@@ -21,7 +24,7 @@
       "name": "folders",
       "title": "Manage Folders",
       "subtitle": "Sift It",
-      "description": "Choose the folders Sift searches, download the model, and control background indexing.",
+      "description": "Choose the folders Sift It searches, download the model, and control background indexing.",
       "mode": "view"
     },
     {
@@ -98,6 +101,7 @@
     "build": "ray build",
     "dev": "ray develop",
     "fix-lint": "ray lint --fix",
-    "lint": "ray lint"
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
   }
 }

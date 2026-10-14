@@ -10,9 +10,11 @@ tool and background indexer.
 
 ## Setup
 
+Sift It needs [sift-it](https://github.com/jwa91/sift-it), the command-line tool that does the work (Apple silicon,
+macOS 14 or later):
+
 ```sh
 brew install jwa91/tap/sift-it
-npm install && npm run dev        # adds the extension to Raycast
 ```
 
 Then, in Raycast:
@@ -69,10 +71,9 @@ extension finds sift-it in `/opt/homebrew/bin`, or wherever its preference point
 ## Development
 
 ```sh
+npm install
 npm run dev         # Raycast picks up changes as you save
 npm run lint
 npm run build
 swift scripts/make-icons.swift   # redraws assets/
 ```
-
-Before publishing to the Raycast Store, set `author` in `package.json` to your Raycast username.
