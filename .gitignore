@@ -1,0 +1,11 @@
+# llama.cpp source and build output (scripts/build-llama.sh)
+/vendor/
+# Rust
+/engine/target/
+# Raycast extension
+/extension/node_modules/
+/extension/dist/
+/extension/raycast-env.d.ts
+# local test files
+/testbed/
+.DS_Store
