@@ -1,0 +1,110 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "sift",
+  "title": "Sift",
+  "description": "Search your files by what's in them: documents, PDFs, photos, screenshots, recordings and videos. On-device, with EmbeddingGemma 2.",
+  "icon": "icon.png",
+  "author": "jwa",
+  "categories": [
+    "Productivity"
+  ],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "search",
+      "title": "Search Files",
+      "subtitle": "Sift",
+      "description": "Describe what you're looking for: find documents, PDF pages, pictures, screenshots and moments in recordings and videos by what's in them.",
+      "mode": "view"
+    },
+    {
+      "name": "pictures",
+      "title": "Search Pictures",
+      "subtitle": "Sift",
+      "description": "Find photos, screenshots and video moments by what they show, in a grid.",
+      "mode": "view"
+    },
+    {
+      "name": "folders",
+      "title": "Manage Folders",
+      "subtitle": "Sift",
+      "description": "Choose the folders Sift searches, download the model, and control background indexing.",
+      "mode": "view"
+    },
+    {
+      "name": "status",
+      "title": "Sift Status",
+      "subtitle": "Sift",
+      "description": "How indexing is going, in the menu bar.",
+      "mode": "menu-bar",
+      "interval": "1m"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "siftPath",
+      "type": "textfield",
+      "required": false,
+      "title": "Engine",
+      "description": "Path to the sift binary. Leave empty to use the one scripts/install.sh installs.",
+      "placeholder": "~/Library/Application Support/Sift/bin/sift"
+    },
+    {
+      "name": "editor",
+      "type": "dropdown",
+      "required": false,
+      "title": "Code Editor",
+      "description": "Opens text and code results at the matching line.",
+      "default": "none",
+      "data": [
+        {
+          "title": "Default App",
+          "value": "none"
+        },
+        {
+          "title": "Visual Studio Code",
+          "value": "vscode"
+        },
+        {
+          "title": "Cursor",
+          "value": "cursor"
+        },
+        {
+          "title": "Zed",
+          "value": "zed"
+        },
+        {
+          "title": "Sublime Text",
+          "value": "sublime"
+        }
+      ]
+    },
+    {
+      "name": "showDetail",
+      "type": "checkbox",
+      "required": false,
+      "title": "Results",
+      "label": "Show details next to results",
+      "default": true,
+      "description": "A preview and the matching passage beside the list."
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.7.3",
+    "@raycast/utils": "^2.3.2"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.2.0",
+    "@types/node": "^22.19.17",
+    "@types/react": "^19.0.10",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint"
+  }
+}

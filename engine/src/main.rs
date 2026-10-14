@@ -33,6 +33,8 @@ enum Command {
         #[command(subcommand)]
         action: Option<FolderAction>,
     },
+    /// Change an option: include-code, index-on-battery (true or false), exclude-ext (comma-separated)
+    Config { key: Option<String>, value: Option<String> },
     /// Bring the index up to date with the folders, then exit
     Index {
         /// JSON lines instead of text
@@ -84,6 +86,8 @@ enum FolderAction {
     Remove { paths: Vec<String> },
     /// Skip a folder inside the indexed ones
     Exclude { paths: Vec<String> },
+    /// Stop skipping a folder
+    Include { paths: Vec<String> },
 }
 
 #[derive(Subcommand)]
@@ -107,6 +111,7 @@ fn main() {
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Folders { action } => folders(action),
+        Command::Config { key, value } => set_option(key, value),
         Command::Index { json, reindex } => index(json, reindex),
         Command::Search { words, kind, limit, words_only, json } => {
             search_once(&words.join(" "), &kind, limit, words_only, json)
@@ -159,6 +164,13 @@ fn folders(action: Option<FolderAction>) -> Result<()> {
             }
             config.save()?;
         }
+        Some(FolderAction::Include { paths }) => {
+            for path in paths {
+                let path = config::expand(&path);
+                config.excluded.retain(|folder| folder != &path);
+            }
+            config.save()?;
+        }
         Some(FolderAction::Exclude { paths }) => {
             for path in paths {
                 let path = config::expand(&path);
@@ -168,6 +180,34 @@ fn folders(action: Option<FolderAction>) -> Result<()> {
             }
             config.save()?;
         }
+    }
+    println!("{}", serde_json::to_string_pretty(&config)?);
+    Ok(())
+}
+
+fn set_option(key: Option<String>, value: Option<String>) -> Result<()> {
+    let mut config = Config::load()?;
+    if let (Some(key), Some(value)) = (key.as_deref(), value.as_deref()) {
+        let flag = || match value {
+            "true" | "on" | "yes" | "1" => Ok(true),
+            "false" | "off" | "no" | "0" => Ok(false),
+            _ => Err(anyhow::anyhow!("{key} takes true or false")),
+        };
+        match key {
+            "include-code" => config.include_code = flag()?,
+            "index-on-battery" => config.index_on_battery = flag()?,
+            "exclude-ext" => {
+                config.excluded_extensions = value
+                    .split(',')
+                    .map(|e| e.trim().trim_start_matches('.').to_lowercase())
+                    .filter(|e| !e.is_empty())
+                    .collect()
+            }
+            _ => bail!("no option {key}: include-code, index-on-battery, exclude-ext"),
+        }
+        config.save()?;
+    } else if key.is_some() {
+        bail!("which value?");
     }
     println!("{}", serde_json::to_string_pretty(&config)?);
     Ok(())
