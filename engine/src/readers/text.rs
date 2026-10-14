@@ -86,6 +86,11 @@ pub struct Passage {
 /// Cuts text into passages of about TARGET_PASSAGE characters, at blank lines where it can, then at line ends,
 /// sentence ends, and spaces. Lines count from 1.
 pub fn passages(text: &str) -> Vec<Passage> {
+    passages_sized(text, TARGET_PASSAGE)
+}
+
+/// The same, aiming for `target` characters a passage.
+pub fn passages_sized(text: &str, target: usize) -> Vec<Passage> {
     // Paragraphs: runs of non-blank lines, with their line numbers.
     let mut paragraphs: Vec<Passage> = Vec::new();
     let mut current: Option<Passage> = None;
@@ -110,7 +115,7 @@ pub fn passages(text: &str) -> Vec<Passage> {
     let mut open: Option<Passage> = None;
     for paragraph in paragraphs.into_iter().flat_map(split_long) {
         match open.as_mut() {
-            Some(passage) if passage.text.len() + paragraph.text.len() + 2 <= TARGET_PASSAGE => {
+            Some(passage) if passage.text.len() + paragraph.text.len() + 2 <= target => {
                 passage.text.push_str("\n\n");
                 passage.text.push_str(&paragraph.text);
                 passage.last_line = paragraph.last_line;

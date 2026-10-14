@@ -290,7 +290,7 @@ fn index(json: bool, reindex: bool) -> Result<()> {
     if reindex {
         store.requeue_all()?;
     }
-    let mut indexer = indexer::Indexer::new(store, config::models_dir());
+    let mut indexer = indexer::Indexer::new(store, config::models_dir())?;
     let mut report = |event: indexer::Event| {
         if json {
             println!("{}", serde_json::to_string(&event).unwrap());
@@ -322,14 +322,14 @@ fn search_once(q: &str, kinds: &[String], limit: usize, words_only: bool, json: 
         .map(|name| Kind::parse(name).ok_or_else(|| anyhow::anyhow!("no such kind: {name}")))
         .collect::<Result<Vec<_>>>()?;
     let mut searcher = search::Searcher::open(&config::index_path())?;
+    let request = search::Request { q: q.to_string(), kinds, limit, prefix_last: false };
     let vector = if words_only {
         None
     } else {
         let files = embedder::ModelFiles::in_folder(&config::models_dir())?;
         let mut encoder = embedder::Embedder::load(&files, true)?;
-        Some(encoder.embed_text(&embedder::prompts::query(q))?)
+        Some(encoder.embed_text(&request.prompt())?)
     };
-    let request = search::Request { q: q.to_string(), kinds, limit, prefix_last: false };
     let response = searcher.search(&request, vector.as_deref())?;
     if json {
         println!("{}", serde_json::to_string_pretty(&response)?);

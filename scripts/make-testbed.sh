@@ -198,6 +198,81 @@ ffmpeg -loglevel error -loop 1 -t 12 -i "$TMP/Zebra.png" -loop 1 -t 12 -i "$TMP/
 [a][b][c]concat=n=3:v=1:a=0,format=yuv420p[v];[3:a]apad[s]" \
   -map "[v]" -map "[s]" -c:v libx264 -r 24 -c:a aac -t 36 "$OUT/Movies/clip_0001.mp4"
 
+# --- A code project (only read with "Read Source Code" on) ------------------------------------------------------------
+
+P="$OUT/Projects/weather-app"
+mkdir -p "$P/.git" "$P/src" "$P/notebooks"
+echo '{ "name": "weather-app", "version": "1.0.0" }' > "$P/package.json"
+cat > "$P/src/http.ts" <<'EOF2'
+import { setTimeout as sleep } from "node:timers/promises";
+
+export class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+/** Calls fn until it succeeds, waiting longer after each failure (200 ms, 400 ms, 800 ms…). */
+export async function withRetries<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+  let delay = 200;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      await sleep(delay);
+      delay *= 2;
+    }
+  }
+}
+
+export async function getJson(url: string): Promise<unknown> {
+  const response = await fetch(url);
+  if (!response.ok) throw new HttpError(response.status, `GET ${url} failed`);
+  return response.json();
+}
+EOF2
+cat > "$P/src/auth.ts" <<'EOF2'
+let accessToken: string | undefined;
+let expiresAt = 0;
+
+export async function refreshAccessToken(refreshToken: string): Promise<string> {
+  const response = await fetch("https://auth.example.com/token", {
+    method: "POST",
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
+  });
+  const body = (await response.json()) as { access_token: string; expires_in: number };
+  accessToken = body.access_token;
+  expiresAt = Date.now() + body.expires_in * 1000;
+  return accessToken;
+}
+
+export function isExpired(): boolean {
+  return !accessToken || Date.now() > expiresAt - 30_000;
+}
+EOF2
+cat > "$P/src/units.py" <<'EOF2'
+def celsius_to_fahrenheit(celsius):
+    return celsius * 9 / 5 + 32
+
+
+def wind_chill(temperature_c, wind_speed_kmh):
+    """The temperature it feels like in the wind (the North American formula)."""
+    v = wind_speed_kmh ** 0.16
+    return 13.12 + 0.6215 * temperature_c - 11.37 * v + 0.3965 * temperature_c * v
+EOF2
+python3 - "$P/notebooks/explore.ipynb" <<'EOF2'
+import json, sys
+cells = [
+    {"cell_type": "markdown", "metadata": {}, "source": ["# Exploring the station data"]},
+    {"cell_type": "code", "metadata": {}, "execution_count": 1, "outputs": [], "source": [
+        "import pandas as pd\n", "df = pd.read_csv('stations.csv')\n", "df.head()"]},
+    {"cell_type": "code", "metadata": {}, "execution_count": 2, "outputs": [], "source": [
+        "counts = df['label'].value_counts()\n", "counts.plot(kind='bar', title='Examples per class')"]},
+]
+json.dump({"cells": cells, "metadata": {}, "nbformat": 4, "nbformat_minor": 5}, open(sys.argv[1], "w"), indent=1)
+EOF2
+
 cp "$TMP/pictures.txt" "$OUT/.pictures.txt"   # which IMG is which (hidden: not indexed)
 echo "testbed: $OUT"
 find "$OUT" -type f -not -name '.*' | sort

@@ -57,8 +57,13 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub fn new(store: Store, models: PathBuf) -> Self {
-        Self { store, models, embedder: None }
+    /// An indexer for this store. Vectors from another pipeline (another model or llama.cpp) are dropped, and their
+    /// files queued again: they'd never compare right with new queries.
+    pub fn new(store: Store, models: PathBuf) -> Result<Self> {
+        if store.adopt_vector_source(&crate::embedder::vector_source())? {
+            eprintln!("the index was made by another model or pipeline: everything is indexed again");
+        }
+        Ok(Self { store, models, embedder: None })
     }
 
     /// Frees the model (about 1 GB) until it's needed again.

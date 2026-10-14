@@ -54,7 +54,9 @@ export function locationLabel(hit: Hit): string | undefined {
     case "frame":
       return timestamp(hit.loc);
     case "passage":
-      return hit.kind === "pdf" ? `Page ${hit.loc}` : hit.loc > 1 ? `Line ${hit.loc}` : undefined;
+      if (hit.kind === "pdf") return `Page ${hit.loc}`;
+      if (hit.path.endsWith(".ipynb")) return `Cell ${hit.loc}`;
+      return hit.loc > 1 ? `Line ${hit.loc}` : undefined;
     case "ocr":
       return hit.kind === "pdf" ? `Page ${hit.loc}` : undefined;
     default:

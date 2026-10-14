@@ -78,7 +78,7 @@ export default function Command() {
       filtering={false}
       throttle
       onSearchTextChange={setQuery}
-      searchBarPlaceholder="Describe what you're looking for…"
+      searchBarPlaceholder="Describe what you're looking for (code: to search code)…"
       isShowingDetail={showingDetail && hits.length > 0}
       onSelectionChange={setSelected}
       searchBarAccessory={

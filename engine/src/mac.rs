@@ -133,16 +133,6 @@ fn image_from_rgbx(rgbx: &mut [u8], width: usize, height: usize) -> Result<CFRet
     objc2_core_graphics::CGBitmapContextCreateImage(Some(&context)).ok_or_else(|| anyhow!("can't make the picture"))
 }
 
-/// A CGImage of packed RGB pixels (for OCR and previews of pictures made here).
-pub fn cg_image(image: &Image) -> Result<CFRetained<CGImage>> {
-    let mut rgbx = Vec::with_capacity(image.rgb.len() / 3 * 4);
-    for pixel in image.rgb.chunks_exact(3) {
-        rgbx.extend_from_slice(pixel);
-        rgbx.push(255);
-    }
-    image_from_rgbx(&mut rgbx, image.width as usize, image.height as usize)
-}
-
 /// A PDF page (from 1) drawn on white, at most `max_side` pixels on the long side.
 pub fn render_pdf_page(path: &Path, page_number: usize, max_side: u32) -> Result<CFRetained<CGImage>> {
     let document = CGPDFDocument::with_url(Some(&*url(path)?)).ok_or_else(|| anyhow!("CoreGraphics can't open it"))?;
@@ -171,11 +161,6 @@ pub fn render_pdf_page(path: &Path, page_number: usize, max_side: u32) -> Result
     image_from_rgbx(&mut rgbx, width, height)
 }
 
-pub fn pdf_page_count(path: &Path) -> Result<usize> {
-    let document = CGPDFDocument::with_url(Some(&*url(path)?)).ok_or_else(|| anyhow!("CoreGraphics can't open it"))?;
-    Ok(CGPDFDocument::number_of_pages(Some(&document)))
-}
-
 /// Writes a JPEG.
 pub fn save_jpeg(image: &CGImage, path: &Path, quality: f64) -> Result<()> {
     let jpeg = CFString::from_str("public.jpeg");
@@ -195,21 +180,19 @@ pub fn save_jpeg(image: &CGImage, path: &Path, quality: f64) -> Result<()> {
 /// The text Vision reads in a picture, line by line from the top.
 pub fn recognize_text(image: &CGImage) -> Result<String> {
     let request = unsafe { VNRecognizeTextRequest::init(VNRecognizeTextRequest::alloc()) };
-    unsafe {
-        request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
-        request.setUsesLanguageCorrection(true);
-        request.setAutomaticallyDetectsLanguage(true);
-    }
+    request.setRecognitionLevel(VNRequestTextRecognitionLevel::Accurate);
+    request.setUsesLanguageCorrection(true);
+    request.setAutomaticallyDetectsLanguage(true);
     let options: Retained<NSDictionary<VNImageOption, AnyObject>> = NSDictionary::new();
     let handler = unsafe { VNImageRequestHandler::initWithCGImage_options(VNImageRequestHandler::alloc(), image, &options) };
     let base: &VNRequest = &request;
     let requests = NSArray::from_slice(&[base]);
     handler.performRequests_error(&requests).map_err(|error| anyhow!("Vision: {}", error.localizedDescription()))?;
-    let Some(results) = (unsafe { request.results() }) else { return Ok(String::new()) };
+    let Some(results) = request.results() else { return Ok(String::new()) };
     let mut lines: Vec<(f64, f64, String)> = Vec::new();
     for observation in results.iter() {
         let Ok(observation) = observation.downcast::<VNRecognizedTextObservation>() else { continue };
-        let candidates = unsafe { observation.topCandidates(1) };
+        let candidates = observation.topCandidates(1);
         let Some(best) = candidates.firstObject() else { continue };
         let bounds = unsafe { observation.boundingBox() };
         // Vision's origin is bottom left: higher y comes first.

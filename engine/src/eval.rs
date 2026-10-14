@@ -4,7 +4,7 @@
 //! must be (a page or a range of seconds). Queries marked "none" have no answer: anything shown among the strong
 //! matches for them is a false alarm.
 
-use crate::embedder::{prompts, Embedder};
+use crate::embedder::Embedder;
 use crate::search::{Request, Searcher};
 use anyhow::Result;
 use serde::Deserialize;
@@ -26,8 +26,8 @@ pub fn run(file: &Path, searcher: &mut Searcher, encoder: &mut Embedder, verbose
     let (mut answered, mut top1, mut top3, mut reciprocal, mut located, mut with_loc) = (0, 0, 0, 0.0, 0, 0);
     let (mut negatives, mut false_alarms) = (0, 0);
     for case in &cases {
-        let vector = encoder.embed_text(&prompts::query(&case.q))?;
         let request = Request { q: case.q.clone(), kinds: Vec::new(), limit: 20, prefix_last: false };
+        let vector = encoder.embed_text(&request.prompt())?;
         let response = searcher.search(&request, Some(&vector))?;
         let names: Vec<String> = response.hits.iter().map(|h| h.name.clone()).collect();
         if case.none {

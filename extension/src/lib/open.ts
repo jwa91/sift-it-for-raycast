@@ -17,7 +17,8 @@ export function openTitle(hit: Hit): { title: string; icon: Icon } {
     return { title: `Play from ${timestamp(hit.loc)}`, icon: Icon.Play };
   }
   if (hit.kind === "pdf" && at) return { title: `Open at ${at}`, icon: Icon.Document };
-  if ((hit.kind === "code" || hit.kind === "text") && at) return { title: `Open at ${at}`, icon: Icon.Code };
+  if ((hit.kind === "code" || hit.kind === "text") && at?.startsWith("Line"))
+    return { title: `Open at ${at}`, icon: Icon.Code };
   return { title: "Open", icon: Icon.ArrowNe };
 }
 
@@ -29,7 +30,8 @@ export async function openHit(hit: Hit): Promise<void> {
   if (hit.kind === "pdf" && hit.loc != null && hit.loc > 1) {
     return openPdfAt(hit.path, hit.loc);
   }
-  if ((hit.kind === "code" || hit.kind === "text") && hit.loc != null && (await openInEditor(hit.path, hit.loc))) {
+  const lines = (hit.kind === "code" || hit.kind === "text") && !hit.path.endsWith(".ipynb");
+  if (lines && hit.loc != null && (await openInEditor(hit.path, hit.loc))) {
     return;
   }
   await open(hit.path);

@@ -103,6 +103,33 @@ pub struct Searcher {
     file_kinds: HashMap<i64, Kind>,
     data_version: i64,
     max_id: i64,
+    /// The index's vectors come from the pipeline the query encoder belongs to (else: words only, until reindexed).
+    compatible: bool,
+}
+
+/// "code: retry with backoff": a search of code, and only of code. Without the prefix (or the code filter), a search
+/// never shows code: a project's thousands of stretches would bury everything else.
+pub const CODE_PREFIX: &str = "code:";
+
+impl Request {
+    /// A search of code: the prefix, or the code filter alone.
+    pub fn is_code(&self) -> bool {
+        self.has_prefix() || self.kinds == [Kind::Code]
+    }
+
+    fn has_prefix(&self) -> bool {
+        self.q.trim_start().get(..CODE_PREFIX.len()).is_some_and(|start| start.eq_ignore_ascii_case(CODE_PREFIX))
+    }
+
+    /// The words searched for, without the prefix.
+    pub fn text(&self) -> &str {
+        if self.has_prefix() { self.q.trim_start()[CODE_PREFIX.len()..].trim() } else { self.q.trim() }
+    }
+
+    /// The prompt the query is embedded with.
+    pub fn prompt(&self) -> String {
+        if self.is_code() { crate::embedder::prompts::code_query(self.text()) } else { crate::embedder::prompts::query(self.text()) }
+    }
 }
 
 /// A segment in the running for its file.
@@ -125,6 +152,7 @@ impl Searcher {
             file_kinds: HashMap::new(),
             data_version: -1,
             max_id: 0,
+            compatible: true,
         };
         searcher.refresh()?;
         Ok(searcher)
@@ -145,6 +173,10 @@ impl Searcher {
             return Ok(false);
         }
         self.data_version = version;
+        self.compatible = self
+            .store
+            .meta("vector_source")?
+            .is_none_or(|source| source == crate::embedder::vector_source());
         let kept: i64 = self.store.conn.query_row(
             "SELECT COUNT(*) FROM segments WHERE vector IS NOT NULL AND id <= ?1",
             [self.max_id],
@@ -188,9 +220,17 @@ impl Searcher {
     pub fn search(&mut self, request: &Request, query: Option<&[f32]>) -> Result<Response> {
         let started = std::time::Instant::now();
         self.refresh()?;
-        let wanted = |kind: Kind| request.kinds.is_empty() || request.kinds.contains(&kind);
+        let code = request.is_code();
+        let wanted = |kind: Kind| {
+            if code {
+                kind == Kind::Code
+            } else {
+                kind != Kind::Code && (request.kinds.is_empty() || request.kinds.contains(&kind))
+            }
+        };
 
         // Meaning: every vector's cosine, and the query's median.
+        let query = query.filter(|_| self.compatible);
         let (cosines, median) = match query {
             Some(query) if !self.ids.is_empty() => {
                 let cosines = self.cosines(query);
@@ -209,7 +249,7 @@ impl Searcher {
                 candidates.insert(self.ids[i], Candidate { segment: self.ids[i], score: cosines[i] - median, words: false });
             }
         }
-        let words = words_of(&request.q);
+        let words = words_of(request.text());
         if !words.is_empty() {
             let matches = self.word_matches(&words, request.prefix_last, 1000)?;
             let count = matches.len().max(1) as f32;
@@ -304,7 +344,8 @@ impl Searcher {
         for (segment_id, kind) in candidates {
             let Some(segment_id) = segment_id else { continue };
             let kind = Kind::parse(&kind).unwrap_or(Kind::Text);
-            if !request.kinds.is_empty() && !request.kinds.contains(&kind) {
+            let wanted = if request.kinds.is_empty() { kind != Kind::Code } else { request.kinds.contains(&kind) };
+            if !wanted {
                 continue;
             }
             if let Some(mut hit) = self.hit(segment_id, &[])? {
@@ -363,7 +404,7 @@ impl Searcher {
             "SELECT f.path, f.kind, f.modified, f.size, f.info, s.segment, s.loc, s.loc_end, s.text
              FROM segments s JOIN files f ON f.id = s.file_id WHERE s.id = ?1",
         )?;
-        let hit = statement
+        let hit: Option<Hit> = statement
             .query_row([segment_id], |row| {
                 let path: String = row.get(0)?;
                 let text: Option<String> = row.get(8)?;
@@ -391,7 +432,38 @@ impl Searcher {
                 })
             })
             .optional()?;
-        Ok(hit)
+        let Some(mut hit) = hit else { return Ok(None) };
+        // In text and code, open at the first line with one of the query's telling words, not at the passage's top.
+        // (A notebook's places are cells, not lines.)
+        let notebook = hit.path.ends_with(".ipynb");
+        if let (Segment::Passage, Kind::Code | Kind::Text, Some(first), false) = (hit.segment, hit.kind, hit.loc, notebook) {
+            if let Some(offset) = self.focus_line(segment_id, words)? {
+                hit.loc = Some(first + offset as f64);
+            }
+        }
+        Ok(Some(hit))
+    }
+
+    /// The first line of a segment (from 0) with one of the words, ignoring short ones.
+    fn focus_line(&self, segment_id: i64, words: &[String]) -> Result<Option<usize>> {
+        let telling: Vec<&String> =
+            words.iter().filter(|w| w.chars().count() > 3 || w.chars().any(|c| c.is_numeric())).collect();
+        if telling.is_empty() {
+            return Ok(None);
+        }
+        let text: Option<String> = self
+            .store
+            .conn
+            .prepare_cached("SELECT text FROM segments WHERE id = ?1")?
+            .query_row([segment_id], |row| row.get(0))
+            .optional()?
+            .flatten();
+        Ok(text.and_then(|text| {
+            text.lines().position(|line| {
+                let line = line.to_lowercase();
+                telling.iter().any(|word| line.contains(word.as_str()))
+            })
+        }))
     }
 }
 

@@ -2,6 +2,7 @@
 //! its token budget, 30 s of 16 kHz sound) and what the keyword index should hold. They stream their pieces to a
 //! sink, so a long video never sits in memory whole.
 
+pub mod code;
 pub mod image;
 pub mod media;
 pub mod pdf;
@@ -36,7 +37,8 @@ pub type Sink<'a> = &'a mut dyn FnMut(Piece) -> Result<()>;
 /// Reads a file into pieces; returns what was learned about it (pages, duration, size) for the index.
 pub fn read(path: &Path, kind: Kind, sink: Sink) -> Result<serde_json::Value> {
     match kind {
-        Kind::Text | Kind::Code => text::read_plain(path, sink),
+        Kind::Text => text::read_plain(path, sink),
+        Kind::Code => code::read(path, sink),
         Kind::Doc => text::read_document(path, sink),
         Kind::Pdf => pdf::read(path, sink),
         Kind::Image | Kind::Screenshot => image::read(path, kind, sink),

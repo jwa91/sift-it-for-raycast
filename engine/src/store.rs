@@ -32,15 +32,6 @@ pub enum Segment {
     Frame,
 }
 
-/// The model's inputs, which score on different scales: a query lands nearer to passages than to pictures that
-/// match it equally well.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Modality {
-    Text,
-    Visual,
-    Audio,
-}
-
 impl Segment {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -59,13 +50,6 @@ impl Segment {
             .find(|segment| segment.as_str() == name)
     }
 
-    pub fn modality(self) -> Modality {
-        match self {
-            Segment::Passage | Segment::Page | Segment::Ocr => Modality::Text,
-            Segment::Picture | Segment::Frame => Modality::Visual,
-            Segment::Sound => Modality::Audio,
-        }
-    }
 }
 
 /// A segment to write.
@@ -87,7 +71,6 @@ pub struct FileRow {
     pub kind: Kind,
     pub size: u64,
     pub modified: f64,
-    pub state: String,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -162,10 +145,6 @@ impl Store {
         Ok(Self { conn, path: path.to_path_buf() })
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
     fn setup(&self) -> Result<()> {
         self.conn.busy_timeout(std::time::Duration::from_secs(10))?;
         self.conn.execute_batch(
@@ -230,7 +209,7 @@ impl Store {
     }
 
     pub fn files(&self) -> Result<Vec<FileRow>> {
-        let mut statement = self.conn.prepare("SELECT id, path, kind, size, modified, state FROM files")?;
+        let mut statement = self.conn.prepare("SELECT id, path, kind, size, modified FROM files")?;
         let rows = statement.query_map([], |row| {
             Ok(FileRow {
                 id: row.get(0)?,
@@ -238,7 +217,6 @@ impl Store {
                 kind: Kind::parse(&row.get::<_, String>(2)?).unwrap_or(Kind::Text),
                 size: row.get::<_, i64>(3)? as u64,
                 modified: row.get(4)?,
-                state: row.get(5)?,
             })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
@@ -249,7 +227,7 @@ impl Store {
         let exact = path.to_string_lossy().to_string();
         let prefix = format!("{}/", exact.trim_end_matches('/'));
         let mut statement = self.conn.prepare(
-            "SELECT id, path, kind, size, modified, state FROM files WHERE path = ?1 OR substr(path, 1, ?2) = ?3",
+            "SELECT id, path, kind, size, modified FROM files WHERE path = ?1 OR substr(path, 1, ?2) = ?3",
         )?;
         let rows = statement.query_map(params![exact, prefix.chars().count() as i64, prefix], |row| {
             Ok(FileRow {
@@ -258,7 +236,6 @@ impl Store {
                 kind: Kind::parse(&row.get::<_, String>(2)?).unwrap_or(Kind::Text),
                 size: row.get::<_, i64>(3)? as u64,
                 modified: row.get(4)?,
-                state: row.get(5)?,
             })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
@@ -304,7 +281,7 @@ impl Store {
     /// Files waiting to be indexed, cheapest kinds and newest files first.
     pub fn pending(&self, limit: usize) -> Result<Vec<FileRow>> {
         let mut statement = self.conn.prepare(
-            "SELECT id, path, kind, size, modified, state FROM files WHERE state = 'pending' ORDER BY modified DESC",
+            "SELECT id, path, kind, size, modified FROM files WHERE state = 'pending' ORDER BY modified DESC",
         )?;
         let mut rows: Vec<FileRow> = statement
             .query_map([], |row| {
@@ -314,7 +291,6 @@ impl Store {
                     kind: Kind::parse(&row.get::<_, String>(2)?).unwrap_or(Kind::Text),
                     size: row.get::<_, i64>(3)? as u64,
                     modified: row.get(4)?,
-                    state: row.get(5)?,
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;
@@ -410,10 +386,24 @@ impl Store {
         Ok(stats)
     }
 
+    /// Makes sure the index's vectors come from the pipeline that makes new ones (`source`, see
+    /// embedder::vector_source). When they don't, every file is queued again; true then.
+    pub fn adopt_vector_source(&self, source: &str) -> Result<bool> {
+        let stored = self.meta("vector_source")?;
+        let stale = stored.as_deref().is_some_and(|stored| stored != source);
+        if stale {
+            self.requeue_all()?;
+        }
+        if stored.as_deref() != Some(source) {
+            self.set_meta("vector_source", source)?;
+        }
+        Ok(stale)
+    }
+
     /// Drops every vector and queues every file again (after a change of model or pipeline).
     pub fn requeue_all(&self) -> Result<()> {
         self.conn.execute_batch(
-            "DELETE FROM words; DELETE FROM segments;
+            "INSERT INTO words (words) VALUES ('delete-all'); DELETE FROM segments;
              UPDATE files SET state = 'pending', error = NULL, info = NULL, indexed_at = NULL;",
         )?;
         Ok(())

@@ -16,7 +16,7 @@
 //! It ends when its stdin closes (Raycast closed the command).
 
 use crate::config;
-use crate::embedder::{prompts, Embedder, ModelFiles};
+use crate::embedder::{Embedder, ModelFiles};
 use crate::preview;
 use crate::search::{Request, Searcher};
 use anyhow::{anyhow, Result};
@@ -40,6 +40,7 @@ fn emit(out: &Mutex<std::io::Stdout>, value: &Value) {
 
 pub fn serve(index: &Path, models: &Path) -> Result<()> {
     let out = Arc::new(Mutex::new(std::io::stdout()));
+    std::thread::spawn(|| preview::prune(&config::previews_dir()));
     let mut searcher = Searcher::open(index)?;
     emit(&out, &json!({"event": "ready", "vectors": searcher.vector_count(), "index": index.display().to_string()}));
 
@@ -93,7 +94,7 @@ fn handle(
             if op == "recent" || search.q.trim().is_empty() {
                 return Ok(serde_json::to_value(searcher.recent(&search)?)?);
             }
-            let vector = query_vector(&search.q, encoder, cache);
+            let vector = query_vector(&search.prompt(), encoder, cache);
             Ok(serde_json::to_value(searcher.search(&search, vector.as_deref())?)?)
         }
         "preview" => {
@@ -117,15 +118,15 @@ fn handle(
     }
 }
 
-/// The query's vector, or None while the encoder loads (words-only results then).
-fn query_vector(q: &str, encoder: &Mutex<Encoder>, cache: &mut HashMap<String, Vec<f32>>) -> Option<Vec<f32>> {
-    let key = q.trim().to_string();
+/// The query's vector (from its prompt), or None while the encoder loads (words-only results then).
+fn query_vector(prompt: &str, encoder: &Mutex<Encoder>, cache: &mut HashMap<String, Vec<f32>>) -> Option<Vec<f32>> {
+    let key = prompt.to_string();
     if let Some(vector) = cache.get(&key) {
         return Some(vector.clone());
     }
     let mut encoder = encoder.lock().unwrap();
     let Encoder::Ready(embedder) = &mut *encoder else { return None };
-    let vector = embedder.embed_text(&prompts::query(&key)).ok()?;
+    let vector = embedder.embed_text(&key).ok()?;
     if cache.len() > 256 {
         cache.clear();
     }

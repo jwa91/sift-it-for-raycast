@@ -20,8 +20,6 @@ pub const DIM: usize = 768;
 /// What the audio encoder listens to: 16 kHz mono, at most 30 seconds per input.
 pub const AUDIO_RATE: usize = 16_000;
 pub const AUDIO_WINDOW: usize = 30 * AUDIO_RATE;
-/// Image token budgets the vision encoder was trained with.
-pub const IMAGE_BUDGETS: [u32; 5] = [70, 140, 280, 560, 1120];
 
 /// Sequences that may share one call to the text model.
 const MAX_SEQUENCES: i32 = 16;
@@ -197,10 +195,6 @@ impl Embedder {
             embedder.embed_texts(&["warm up"])?;
             Ok(embedder)
         }
-    }
-
-    pub fn has_media(&self) -> bool {
-        !self.media.is_null()
     }
 
     /// One vector per text, in order. Prompts (query or document framing) are the caller's: see `prompts`.

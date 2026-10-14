@@ -275,7 +275,7 @@ pub fn run() -> Result<()> {
     let mut config = Config::load()?;
     let mut config_time = modified(&config_path);
     let store = Store::open(&config::index_path()).context("can't open the index")?;
-    let mut indexer = Indexer::new(store, config::models_dir());
+    let mut indexer = Indexer::new(store, config::models_dir())?;
     let (sender, receiver) = channel();
     let mut watcher = watch(&config, sender.clone())?;
     let mut changes = Changes { receiver, paths: HashSet::new(), last: None, rescan: true };
