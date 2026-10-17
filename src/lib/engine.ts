@@ -3,19 +3,27 @@ import { createInterface } from "node:readline";
 import { useEffect, useState } from "react";
 import { siftBinary } from "./sift";
 
-/** An event from `sift-it serve` (a line without an id). */
+/** Whether search by meaning can be had: the engine loads its model and vectors for the first such search. */
+export type MeaningState = "unloaded" | "loading" | "ready" | "unavailable";
+
+/**
+ * An event from the engine, through `sift-it serve` (a line without an id): `ready` on connecting (again, after the
+ * engine was restarted), `meaning` when its state changes, `exit` when serve itself stopped.
+ */
 export interface EngineEvent {
-  event: "ready" | "encoder" | "exit";
-  state?: "ready" | "unavailable";
+  event: "ready" | "meaning" | "config" | "exit";
+  /** On ready. */
+  meaning?: MeaningState;
+  /** On meaning. */
+  state?: MeaningState;
   error?: string;
-  vectors?: number;
 }
 
 type Waiting = { resolve: (value: unknown) => void; reject: (error: Error) => void };
 
 /**
- * `sift-it serve`, the searcher as a process: it keeps the vectors in memory and the query encoder loaded while the
- * command is open. One JSON request per line in, one reply per line out with the request's id.
+ * `sift-it serve`, the way to the engine: one resident process that keeps what it loaded (the model and the vectors)
+ * between commands. One JSON request per line in, one reply per line out with the request's id.
  */
 export class Engine {
   private child: ChildProcess;
@@ -80,15 +88,15 @@ export class Engine {
 
 export interface EngineState {
   engine?: Engine;
-  /** The index is open: words-only searches work. */
+  /** The engine answers: searches by words work. */
   ready: boolean;
-  /** The query encoder is loaded: searches use meaning too. */
+  /** The model and the vectors are loaded: searches use meaning too. */
   meaning: boolean;
   error?: string;
   missing?: boolean;
 }
 
-/** Starts `sift-it serve` for as long as the command is open. */
+/** Starts `sift-it serve` for as long as the command is open (the engine behind it stays). */
 export function useEngine(): EngineState {
   const [state, setState] = useState<EngineState>({ ready: false, meaning: false });
   useEffect(() => {
@@ -103,11 +111,13 @@ export function useEngine(): EngineState {
       setState((state) => {
         switch (event.event) {
           case "ready":
-            return { ...state, ready: true };
-          case "encoder":
-            return event.state === "ready"
-              ? { ...state, meaning: true }
-              : { ...state, meaning: false, error: event.error ?? "the model couldn't load" };
+            return { ...state, ready: true, meaning: event.meaning === "ready", error: undefined };
+          case "meaning":
+            return event.state === "unavailable"
+              ? { ...state, meaning: false, error: event.error ?? "the model couldn't load" }
+              : { ...state, meaning: event.state === "ready" };
+          case "config":
+            return state;
           case "exit":
             return { ...state, ready: false, meaning: false, error: event.error };
         }
