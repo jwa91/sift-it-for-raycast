@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import { highlight, timestamp, wordsOf } from "./format";
 import type { Preview } from "./preview";
-import type { Hit } from "./sift";
+import { type Hit, isPdf } from "./sift";
 
 /** A local picture in the detail pane, `height` points tall. */
 function picture(path: string, height: number): string {
@@ -81,7 +81,7 @@ export function detailMarkdown(hit: Hit, preview: Preview | undefined, query: st
   const parts: string[] = [];
   const text = preview?.text ?? hit.excerpt ?? undefined;
   const words = (body: string) => highlight(textWindow(body, query), query);
-  switch (hit.kind) {
+  switch (isPdf(hit) ? "pdf" : hit.kind) {
     case "image":
       if (preview?.image) parts.push(picture(preview.image, 320));
       if (hit.excerpt) parts.push(words(hit.excerpt));

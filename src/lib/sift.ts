@@ -7,7 +7,7 @@ import { join } from "node:path";
 /** Where the engine keeps its files (see engine/src/config.rs). */
 export const SIFT_HOME = join(homedir(), "Library/Application Support/Sift It");
 
-export type Kind = "text" | "doc" | "pdf" | "image" | "screenshot" | "audio" | "video" | "code";
+export type Kind = "plaintext" | "document" | "image" | "screenshot" | "audio" | "video" | "code";
 export type Segment = "passage" | "page" | "picture" | "ocr" | "sound" | "frame";
 
 export interface Hit {
@@ -33,18 +33,27 @@ export interface Hit {
   info?: Record<string, unknown> | null;
 }
 
+/** PDFs are documents shown page by page. */
+export function isPdf(hit: Hit): boolean {
+  return hit.path.toLowerCase().endsWith(".pdf");
+}
+
 export interface SearchResponse {
   hits: Hit[];
   meaning: boolean;
   ms: number;
 }
 
+/** The parts of config.json this extension changes (`sift-it config` shows and sets all of it). */
 export interface Config {
-  folders: string[];
-  excluded: string[];
-  excluded_extensions: string[];
-  include_code: boolean;
-  index_on_battery: boolean;
+  sources: {
+    paths: string[];
+    /** Patterns for files and folders to leave out: a name anywhere ("*.psd"), or a path ("~/Documents/Old"). */
+    ignore: string[];
+    kinds: Record<string, string[]>;
+    code: boolean;
+  };
+  indexing: { on_battery: boolean };
 }
 
 export interface Stats {
@@ -58,9 +67,19 @@ export interface Stats {
   bytes: number;
 }
 
+/** The work still queued: about how long reading it takes, and the files that take longest. */
+export interface Queued {
+  files: number;
+  seconds: number;
+  heaviest: { path: string; kind: Kind; seconds: number }[];
+}
+
 export interface Status {
   index: string;
   stats: Stats;
+  queued: Queued;
+  /** Recordings and videos whose speech is written down, and the sound still to go. */
+  speech: { done: number; total: number; seconds: number; unavailable?: string | null };
   config: Config;
   models: { folder: string; text: boolean; media: boolean; bytes: number };
   indexer?: IndexerStatus | null;
@@ -96,8 +115,9 @@ export async function estimate(folders: string[]): Promise<Estimate[]> {
 /** "about 12 minutes", as the engine says it. */
 export function describeDuration(seconds: number): string {
   if (seconds < 60) return "under a minute";
-  if (seconds < 90 * 60) return `about ${Math.max(1, Math.round(seconds / 60))} minutes`;
-  return `about ${Math.max(1, Math.round(seconds / 3600))} hours`;
+  if (seconds < 90) return "about a minute";
+  if (seconds < 90 * 60) return `about ${Math.round(seconds / 60)} minutes`;
+  return `about ${Math.round(seconds / 3600)} hours`;
 }
 
 /** The sift-it binary: the one set in preferences, else Homebrew's (brew install jwa91/tap/sift-it), else `make install`'s. */
@@ -108,8 +128,6 @@ export function siftBinary(): string | undefined {
     "/opt/homebrew/bin/sift-it",
     join(homedir(), ".local/bin/sift-it"),
     "/usr/local/bin/sift-it",
-    // Where development builds used to be installed.
-    join(SIFT_HOME, "bin/sift-it"),
   ];
   return candidates.find((path): path is string => !!path && existsSync(path));
 }

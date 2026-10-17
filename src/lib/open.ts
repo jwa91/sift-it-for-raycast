@@ -2,7 +2,7 @@ import { Icon, getPreferenceValues, open, showHUD } from "@raycast/api";
 import { runAppleScript } from "@raycast/utils";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import type { Hit } from "./sift";
+import { type Hit, isPdf } from "./sift";
 import { locationLabel, timestamp } from "./format";
 
 /** AppleScript string literal. */
@@ -16,8 +16,8 @@ export function openTitle(hit: Hit): { title: string; icon: Icon } {
   if ((hit.kind === "video" || hit.kind === "audio") && hit.loc != null) {
     return { title: `Play from ${timestamp(hit.loc)}`, icon: Icon.Play };
   }
-  if (hit.kind === "pdf" && at) return { title: `Open at ${at}`, icon: Icon.Document };
-  if ((hit.kind === "code" || hit.kind === "text") && at?.startsWith("Line"))
+  if (isPdf(hit) && at) return { title: `Open at ${at}`, icon: Icon.Document };
+  if ((hit.kind === "code" || hit.kind === "plaintext") && at?.startsWith("Line"))
     return { title: `Open at ${at}`, icon: Icon.Code };
   return { title: "Open", icon: Icon.ArrowNe };
 }
@@ -27,10 +27,10 @@ export async function openHit(hit: Hit): Promise<void> {
   if ((hit.kind === "video" || hit.kind === "audio") && hit.loc != null) {
     return playAt(hit.path, hit.loc);
   }
-  if (hit.kind === "pdf" && hit.loc != null && hit.loc > 1) {
+  if (isPdf(hit) && hit.loc != null && hit.loc > 1) {
     return openPdfAt(hit.path, hit.loc);
   }
-  const lines = (hit.kind === "code" || hit.kind === "text") && !hit.path.endsWith(".ipynb");
+  const lines = (hit.kind === "code" || hit.kind === "plaintext") && !hit.path.endsWith(".ipynb");
   if (lines && hit.loc != null && (await openInEditor(hit.path, hit.loc))) {
     return;
   }

@@ -14,6 +14,7 @@ import {
 } from "@raycast/api";
 import { showFailureToast, useCachedPromise, usePromise } from "@raycast/utils";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { bytes, shortPath } from "./lib/format";
 import {
@@ -39,18 +40,18 @@ export default function Folders() {
   }
 
   const config = status?.config;
-  const { data: estimates } = useCachedPromise(estimate, [config?.folders ?? []], { execute: !!config });
+  const { data: estimates } = useCachedPromise(estimate, [config?.sources.paths ?? []], { execute: !!config });
   const estimateOf = (folder: string) => estimates?.find((e) => e.folder === folder);
   return (
     <List isLoading={isLoading} navigationTitle="Manage Folders" searchBarPlaceholder="Filter folders">
-      <List.Section title="Folders to Search" subtitle={config ? `${config.folders.length}` : undefined}>
-        {config?.folders.map((folder) => (
+      <List.Section title="Folders to Search" subtitle={config ? `${config.sources.paths.length}` : undefined}>
+        {config?.sources.paths.map((folder) => (
           <List.Item
             key={folder}
             title={shortPath(folder)}
             subtitle={describeFolder(estimateOf(folder))}
             icon={{ fileIcon: folder }}
-            accessories={excludedUnder(folder, config.excluded)}
+            accessories={skippedUnder(folder, config.sources.ignore)}
             actions={
               <ActionPanel>
                 <Action.Push
@@ -87,19 +88,22 @@ export default function Folders() {
         />
       </List.Section>
 
-      {config && config.excluded.length > 0 && (
-        <List.Section title="Skipped Folders">
-          {config.excluded.map((folder) => (
+      {config && config.sources.ignore.length > 0 && (
+        <List.Section title="Skipped">
+          {config.sources.ignore.map((pattern) => (
             <List.Item
-              key={folder}
-              title={shortPath(folder)}
+              key={pattern}
+              title={pattern.startsWith("/") ? shortPath(pattern) : pattern}
               icon={{ source: Icon.EyeDisabled, tintColor: Color.SecondaryText }}
               actions={
                 <ActionPanel>
                   <Action
-                    title="Search This Folder Again"
+                    title="Search This Again"
                     icon={Icon.Eye}
-                    onAction={() => run(["folders", "include", folder], "Folder searched again", revalidate)}
+                    onAction={() => {
+                      const ignore = JSON.stringify(config.sources.ignore.filter((other) => other !== pattern));
+                      return run(["config", "sources.ignore", ignore], "Searched again", revalidate);
+                    }}
                   />
                 </ActionPanel>
               }
@@ -115,14 +119,14 @@ export default function Folders() {
           <Toggle
             title="Read Source Code"
             subtitle="Index code files too, also inside code projects"
-            value={config.include_code}
-            onChange={(value) => run(["config", "include-code", String(value)], "Saved", revalidate)}
+            value={config.sources.code}
+            onChange={(value) => run(["config", "sources.code", String(value)], "Saved", revalidate)}
           />
           <Toggle
             title="Index on Battery"
             subtitle="Otherwise the first pass waits for a charger"
-            value={config.index_on_battery}
-            onChange={(value) => run(["config", "index-on-battery", String(value)], "Saved", revalidate)}
+            value={config.indexing.on_battery}
+            onChange={(value) => run(["config", "indexing.on_battery", String(value)], "Saved", revalidate)}
           />
         </List.Section>
       )}
@@ -136,8 +140,11 @@ function describeFolder(e?: { files: number; seconds: number; unreadable: boolea
   return `${e.files.toLocaleString()} files · ${describeDuration(e.seconds)} to index from scratch`;
 }
 
-function excludedUnder(folder: string, excluded: string[]): List.Item.Accessory[] {
-  const count = excluded.filter((path) => path.startsWith(folder + "/")).length;
+/** How many ignore patterns name a path inside the folder. */
+function skippedUnder(folder: string, ignore: string[]): List.Item.Accessory[] {
+  const count = ignore
+    .map((pattern) => pattern.replace(/^~(?=\/)/, homedir()))
+    .filter((path) => path.startsWith(folder + "/")).length;
   return count > 0 ? [{ text: `${count} skipped`, icon: Icon.EyeDisabled }] : [];
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Engine } from "./engine";
-import type { Hit } from "./sift";
+import { type Hit, isPdf } from "./sift";
 
 /** What a result's preview shows: a picture (the photo, the PDF page, the video frame), a waveform, its text. */
 export interface Preview {
@@ -25,7 +25,7 @@ async function load(engine: Engine, hit: Hit): Promise<Preview> {
     engine.request<{ text: string | null }>("text", params).then(({ text }) => text ?? undefined);
   const parts: Promise<unknown>[] = [];
 
-  switch (hit.kind) {
+  switch (isPdf(hit) ? "pdf" : hit.kind) {
     case "image":
     case "screenshot":
       if (SHOWN_AS_IS.test(hit.path)) preview.image = hit.path;

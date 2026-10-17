@@ -1,6 +1,7 @@
-import { Icon, LaunchType, MenuBarExtra, Toast, launchCommand, open, showToast } from "@raycast/api";
+import { Icon, LaunchType, MenuBarExtra, Toast, launchCommand, open, showInFinder, showToast } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
-import { SIFT_HOME, getStatus, runSift, startDetached } from "./lib/sift";
+import { basename } from "node:path";
+import { SIFT_HOME, describeDuration, getStatus, runSift, startDetached } from "./lib/sift";
 import { describeIndexer } from "./folders";
 
 /** Sift It in the menu bar: how indexing is going, and a way to pause it. */
@@ -11,6 +12,8 @@ export default function Command() {
   const busy = running && (indexer.state === "indexing" || indexer.state === "syncing");
   const title =
     busy && indexer.state === "indexing" && indexer.total > 0 ? `${indexer.done}/${indexer.total}` : undefined;
+  // The files that take longest: what an ignore pattern or a lower depth could leave out.
+  const heaviest = status?.queued.heaviest.filter((file) => file.seconds >= 60) ?? [];
 
   return (
     <MenuBarExtra
@@ -21,10 +24,24 @@ export default function Command() {
     >
       <MenuBarExtra.Section>
         <MenuBarExtra.Item title={describeIndexer(indexer)} />
-        {status && (
+        {status && <MenuBarExtra.Item title={`${status.stats.done} files indexed`} />}
+        {status && status.queued.files > 0 && (
           <MenuBarExtra.Item
-            title={`${status.stats.done} files indexed${status.stats.pending ? `, ${status.stats.pending} waiting` : ""}`}
+            title={`${status.queued.files} waiting, ${describeDuration(status.queued.seconds)} of reading`}
           />
+        )}
+        {heaviest.length > 0 && (
+          <MenuBarExtra.Submenu title="Taking Longest" icon={Icon.Hourglass}>
+            {heaviest.map((file) => (
+              <MenuBarExtra.Item
+                key={file.path}
+                title={basename(file.path)}
+                subtitle={describeDuration(file.seconds)}
+                tooltip={file.path}
+                onAction={() => showInFinder(file.path)}
+              />
+            ))}
+          </MenuBarExtra.Submenu>
         )}
         {indexer?.last_error && <MenuBarExtra.Item title={`Last problem: ${indexer.last_error}`} />}
       </MenuBarExtra.Section>

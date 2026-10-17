@@ -1,12 +1,11 @@
 import { Icon } from "@raycast/api";
 import { basename, dirname } from "node:path";
 import { homedir } from "node:os";
-import type { Hit, Kind } from "./sift";
+import { type Hit, type Kind, isPdf } from "./sift";
 
 export const KIND_LABELS: Record<Kind, string> = {
-  text: "Text",
-  doc: "Document",
-  pdf: "PDF",
+  plaintext: "Text",
+  document: "Document",
   image: "Picture",
   screenshot: "Screenshot",
   audio: "Recording",
@@ -15,9 +14,8 @@ export const KIND_LABELS: Record<Kind, string> = {
 };
 
 export const KIND_ICONS: Record<Kind, Icon> = {
-  text: Icon.Text,
-  doc: Icon.Document,
-  pdf: Icon.Document,
+  plaintext: Icon.Text,
+  document: Icon.Document,
   image: Icon.Image,
   screenshot: Icon.Desktop,
   audio: Icon.Microphone,
@@ -28,7 +26,7 @@ export const KIND_ICONS: Record<Kind, Icon> = {
 /** The kind filters in the search bar's dropdown. */
 export const FILTERS: { id: string; title: string; kinds: Kind[]; icon: Icon }[] = [
   { id: "all", title: "Everything", kinds: [], icon: Icon.MagnifyingGlass },
-  { id: "documents", title: "Documents and PDFs", kinds: ["text", "doc", "pdf"], icon: Icon.Document },
+  { id: "documents", title: "Documents and PDFs", kinds: ["plaintext", "document"], icon: Icon.Document },
   { id: "pictures", title: "Pictures and Screenshots", kinds: ["image", "screenshot"], icon: Icon.Image },
   { id: "recordings", title: "Recordings", kinds: ["audio"], icon: Icon.Microphone },
   { id: "videos", title: "Videos", kinds: ["video"], icon: Icon.FilmStrip },
@@ -53,11 +51,11 @@ export function locationLabel(hit: Hit): string | undefined {
     case "frame":
       return timestamp(hit.loc);
     case "passage":
-      if (hit.kind === "pdf") return `Page ${hit.loc}`;
+      if (isPdf(hit)) return `Page ${hit.loc}`;
       if (hit.path.endsWith(".ipynb")) return `Cell ${hit.loc}`;
       return hit.loc > 1 ? `Line ${hit.loc}` : undefined;
     case "ocr":
-      return hit.kind === "pdf" ? `Page ${hit.loc}` : undefined;
+      return isPdf(hit) ? `Page ${hit.loc}` : undefined;
     default:
       return undefined;
   }
