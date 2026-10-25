@@ -1,7 +1,7 @@
 import { extname } from "node:path";
-import { highlight, timestamp, wordsOf } from "./format";
+import { agentName, escapeMarkdown, highlight, timestamp, when, wordsOf } from "./format";
 import type { Preview } from "./preview";
-import { type Hit, isPdf } from "./sift";
+import { type Hit, conversationOf, isPdf } from "./sift";
 
 /** A local picture in the detail pane, `height` points tall. */
 function picture(path: string, height: number): string {
@@ -71,6 +71,26 @@ function codeBlock(text: string, path: string): string {
   return `${fence}${language}\n${text.replace(/\s+$/, "")}\n${fence}`;
 }
 
+/**
+ * A conversation's exchange, its lines kept: who speaks in bold where the speaker changes (User, Claude, Codex), each
+ * turn its own paragraph, the query's words in bold.
+ */
+function exchange(text: string, query: string): string {
+  const turns: string[][] = [[]];
+  for (const line of text.split("\n")) {
+    const speaker = /^(User|Claude|Codex):\s*/.exec(line);
+    if (speaker || !line.trim()) turns.push([]);
+    if (!speaker && !line.trim()) continue;
+    // A line of dashes or equals signs would make the one above it a heading.
+    const words = highlight(speaker ? line.slice(speaker[0].length) : line, query).replace(/^([-=])/, "\\$1");
+    turns[turns.length - 1].push(speaker ? `**${speaker[1]}:** ${words}` : words);
+  }
+  return turns
+    .filter((turn) => turn.length > 0)
+    .map((turn) => turn.join("  \n"))
+    .join("\n\n");
+}
+
 function span(hit: Hit): string {
   if (hit.loc == null) return "";
   return hit.loc_end != null ? `${timestamp(hit.loc)}–${timestamp(hit.loc_end)}` : timestamp(hit.loc);
@@ -112,6 +132,14 @@ export function detailMarkdown(hit: Hit, preview: Preview | undefined, query: st
     case "code":
       if (text) parts.push(codeBlock(numberedCode(text, hit, query), hit.path));
       break;
+    case "conversation": {
+      // Who it was with and when it was said: "Codex · 2 Jun at 14:00".
+      const said = [agentName(conversationOf(hit)?.agent), hit.loc != null ? when(hit.loc) : undefined];
+      const heading = said.filter((part) => part).join(" · ");
+      if (heading) parts.push(`**${escapeMarkdown(heading)}**`);
+      if (text) parts.push(exchange(textWindow(text, query, 4000), query));
+      break;
+    }
     default:
       if (text) parts.push(words(text));
   }

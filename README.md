@@ -29,9 +29,13 @@ One search bar for everything:
 - **Type the words**: invoice numbers, error codes, names. Numbers and codes, which no model reads exactly, count
   heavily; ordinary words decide between results that mean about the same.
 - **Quote them to insist**: `"INV-2024-0113" invoice` only shows files with that exact text, ranked by the rest.
-- **`code:`** searches code, once it's turned on (`sift-it config sources.code true`).
+- **`code:`** searches code, once it's turned on in Sift It's Settings → Folders → Kinds of files (the Code
+  checkbox).
 
-The dropdown can narrow it to documents, pictures, audio, videos or code, but it starts at everything.
+The dropdown can narrow it to documents, pictures, audio, videos, code or conversations, but it starts at everything.
+
+Conversations are your sessions with Claude Code and Codex, found by what you and the agent said. They come from the
+logs in `~/.claude/projects` and `~/.codex/sessions`: add those folders in Sift It's settings, which offer both.
 
 Each result's preview fits its kind:
 
@@ -44,8 +48,11 @@ Each result's preview fits its kind:
 | Audio | its waveform with the 30 seconds that matched highlighted | plays from that moment (QuickTime) |
 | Video | the frame at the moment, also as its icon in the list (and the waveform, when it matched by sound) | plays from that moment |
 | Code | the code that matched, numbered from its line | opens your editor at the line |
+| Conversation | the exchange that matched, with the agent (Claude Code or Codex) and when it was said | resumes it in your terminal, in the folder it started in |
 
-⌘↩ shows it in Finder, ⌘Y Quick Look, ⌘C copies the file, ⇧⌘C the path, ⇧⌘T the text on it, ⌘D hides the preview.
+⌘↩ shows it in Finder, ⌘Y Quick Look, ⌘C copies the file (a conversation's resume command), ⇧⌘C the path, ⇧⌘T the
+text on it, ⌘D hides the preview. A conversation whose folder is gone can't be resumed in it; Raycast says so and
+offers the command to copy.
 
 ## Commands
 
@@ -60,6 +67,10 @@ Search Files starts `sift-it serve` while it's open: it keeps the index's vector
 loaded, and answers JSON requests on stdin (search, recent files, previews: a picture, a PDF page, a video frame, a
 waveform, a passage's text). It finds sift-it in `/opt/homebrew/bin`, or wherever its preference points. Open
 Settings opens `sift-it://settings`, which the app handles.
+
+Resuming a conversation works as in the app: a small `.command` file with the command, written to
+`~/Library/Caches/sift-it/resume` and opened, so the terminal for those (Terminal, or the one you chose) runs it in a
+login shell, where `claude` and `codex` are found.
 
 ## Development
 

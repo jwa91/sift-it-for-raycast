@@ -1,5 +1,17 @@
 # Sift It Changelog
 
+## [Conversations] - {PR_MERGE_DATE}
+
+- Conversations: your sessions with Claude Code and Codex, found by what you and the agent said, with a filter of
+  their own.
+- Each shows its title and the day it was said, and its preview the exchange that matched, with the agent and when
+  it was said ("2 Jun at 14:00").
+- ↩ resumes it in your terminal, in the folder it started in, as the Sift It app does; ⌘C copies the resume command.
+  A folder that's gone is said, with the command to copy.
+- Code is turned on in Sift It's Settings → Folders → Kinds of files now.
+- A kind of file the extension doesn't know yet shows under its own name.
+- Dates and times follow your Mac's language and region.
+
 ## [Two Commands] - {PR_MERGE_DATE}
 
 - Two commands: Search Files, and Open Settings, which opens the Sift It app's settings.
