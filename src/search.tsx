@@ -271,7 +271,7 @@ function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; previe
   const agent = agentName(conversation?.agent);
   const where = locationLabel(hit);
   const span =
-    (hit.segment === "sound" || hit.segment === "frame") && hit.loc != null
+    (hit.segment === "sound" || hit.segment === "frame" || hit.segment === "speech") && hit.loc != null
       ? hit.loc_end != null
         ? `${timestamp(hit.loc)}–${timestamp(hit.loc_end)}`
         : timestamp(hit.loc)

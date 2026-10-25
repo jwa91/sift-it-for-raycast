@@ -10,6 +10,8 @@
   A folder that's gone is said, with the command to copy.
 - Code is turned on in Sift It's Settings → Folders → Kinds of files now.
 - A kind of file the extension doesn't know yet shows under its own name.
+- CSV, JSON and YAML files are called Data, as in the app, with a filter of their own.
+- What's said in audio and videos shows when it was said, as the rest of their matches do.
 - Dates and times follow your Mac's language and region.
 
 ## [Two Commands] - {PR_MERGE_DATE}

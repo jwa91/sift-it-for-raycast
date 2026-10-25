@@ -91,6 +91,11 @@ function exchange(text: string, query: string): string {
     .join("\n\n");
 }
 
+/** What a sound's match was: what's said (speech, written down) or what's heard. */
+function heard(hit: Hit): string {
+  return hit.segment === "speech" ? "Said" : "Heard";
+}
+
 function span(hit: Hit): string {
   if (hit.loc == null) return "";
   return hit.loc_end != null ? `${timestamp(hit.loc)}–${timestamp(hit.loc_end)}` : timestamp(hit.loc);
@@ -116,9 +121,9 @@ export function detailMarkdown(hit: Hit, preview: Preview | undefined, query: st
       break;
     case "video":
       if (preview?.image) parts.push(picture(preview.image, 240));
-      if (hit.segment === "sound") {
+      if (hit.segment === "sound" || hit.segment === "speech") {
         if (preview?.waveform) parts.push(picture(preview.waveform, 70));
-        parts.push(`**Heard at ${span(hit)}**`);
+        parts.push(`**${heard(hit)} at ${span(hit)}**`);
       } else if (hit.loc != null) {
         parts.push(`**Seen at ${timestamp(hit.loc)}**`);
       }
@@ -126,7 +131,7 @@ export function detailMarkdown(hit: Hit, preview: Preview | undefined, query: st
     case "audio":
       if (preview?.waveform) parts.push(picture(preview.waveform, 80));
       parts.push(
-        `**Heard at ${span(hit)}**${typeof hit.info?.duration === "number" ? ` of ${timestamp(hit.info.duration)}` : ""}`,
+        `**${heard(hit)} at ${span(hit)}**${typeof hit.info?.duration === "number" ? ` of ${timestamp(hit.info.duration)}` : ""}`,
       );
       break;
     case "code":

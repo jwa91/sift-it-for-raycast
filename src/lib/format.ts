@@ -7,6 +7,7 @@ import { type Hit, type Kind, conversationOf, isPdf } from "./sift";
 const KIND_LABELS: Record<Kind, string> = {
   plaintext: "Text",
   document: "Document",
+  structured: "Data",
   image: "Picture",
   screenshot: "Screenshot",
   audio: "Audio",
@@ -18,6 +19,7 @@ const KIND_LABELS: Record<Kind, string> = {
 const KIND_ICONS: Record<Kind, Icon> = {
   plaintext: Icon.Text,
   document: Icon.Document,
+  structured: Icon.BarChart,
   image: Icon.Image,
   screenshot: Icon.Desktop,
   audio: Icon.Microphone,
@@ -26,7 +28,7 @@ const KIND_ICONS: Record<Kind, Icon> = {
   conversation: Icon.SpeechBubble,
 };
 
-/** A kind's name: "Picture", "Conversation". A kind this extension doesn't know is called what the engine calls it. */
+/** A kind's name: "Picture", "Data", "Conversation". A kind this extension doesn't know is called what the engine calls it. */
 export function kindLabel(kind: string): string {
   return (KIND_LABELS as Record<string, string | undefined>)[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
@@ -43,6 +45,7 @@ export const FILTERS: { id: string; title: string; kinds: Kind[]; icon: Icon }[]
   { id: "audio", title: "Audio", kinds: ["audio"], icon: Icon.Microphone },
   { id: "videos", title: "Videos", kinds: ["video"], icon: Icon.FilmStrip },
   { id: "code", title: "Code", kinds: ["code"], icon: Icon.Code },
+  { id: "data", title: "Data", kinds: ["structured"], icon: Icon.BarChart },
   { id: "conversations", title: "Conversations", kinds: ["conversation"], icon: Icon.SpeechBubble },
 ];
 
@@ -148,6 +151,7 @@ export function locationLabel(hit: Hit): string | undefined {
       return `Page ${hit.loc}`;
     case "sound":
     case "frame":
+    case "speech":
       return timestamp(hit.loc);
     case "passage":
       if (isPdf(hit)) return `Page ${hit.loc}`;

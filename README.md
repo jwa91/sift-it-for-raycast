@@ -32,7 +32,8 @@ One search bar for everything:
 - **`code:`** searches code, once it's turned on in Sift It's Settings → Folders → Kinds of files (the Code
   checkbox).
 
-The dropdown can narrow it to documents, pictures, audio, videos, code or conversations, but it starts at everything.
+The dropdown can narrow it to documents, pictures, audio, videos, code, data (CSV, JSON and YAML) or conversations,
+but it starts at everything.
 
 Conversations are your sessions with Claude Code and Codex, found by what you and the agent said. They come from the
 logs in `~/.claude/projects` and `~/.codex/sessions`: add those folders in Sift It's settings, which offer both.

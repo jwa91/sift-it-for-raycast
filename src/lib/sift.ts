@@ -4,9 +4,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** The kinds this extension knows. A newer engine can send others: a hit's kind is any name. */
-export type Kind = "plaintext" | "document" | "image" | "screenshot" | "audio" | "video" | "code" | "conversation";
+export type Kind =
+  "plaintext" | "document" | "structured" | "image" | "screenshot" | "audio" | "video" | "code" | "conversation";
 /** The segments this extension knows; a hit's segment is any name, like its kind. */
-export type Segment = "passage" | "page" | "picture" | "ocr" | "sound" | "frame" | "exchange";
+export type Segment = "passage" | "page" | "picture" | "ocr" | "sound" | "frame" | "speech" | "exchange";
 
 export interface Hit {
   /** The file, and what it's called: its name, or a conversation's title. */
