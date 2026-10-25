@@ -1,4 +1,4 @@
-// Draws the extension's icons into assets/: the command icon (512 px) and the menu bar icon (light and dark).
+// Draws the extension's icon into assets/icon.png (512 px).
 //   swift scripts/make-icons.swift
 import AppKit
 
@@ -37,10 +37,4 @@ let icon = png(512) { rect in
     drawCentered(symbol("sparkle.magnifyingglass", pointSize: 250, color: .white), in: rect)
 }
 try icon.write(to: assets.appendingPathComponent("icon.png"))
-
-// The menu bar icon: 16 pt, drawn at 2× for sharpness.
-for (name, color) in [("menubar.png", NSColor.black), ("menubar@dark.png", NSColor.white)] {
-    let data = png(32) { rect in drawCentered(symbol("sparkle.magnifyingglass", pointSize: 22, color: color), in: rect) }
-    try data.write(to: assets.appendingPathComponent(name))
-}
-print("icons in \(assets.path)")
+print("icon in \(assets.path)")

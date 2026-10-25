@@ -1,5 +1,5 @@
 import { Icon } from "@raycast/api";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { type Hit, type Kind, isPdf } from "./sift";
 
@@ -8,7 +8,7 @@ export const KIND_LABELS: Record<Kind, string> = {
   document: "Document",
   image: "Picture",
   screenshot: "Screenshot",
-  audio: "Recording",
+  audio: "Audio",
   video: "Video",
   code: "Code",
 };
@@ -28,7 +28,7 @@ export const FILTERS: { id: string; title: string; kinds: Kind[]; icon: Icon }[]
   { id: "all", title: "Everything", kinds: [], icon: Icon.MagnifyingGlass },
   { id: "documents", title: "Documents and PDFs", kinds: ["plaintext", "document"], icon: Icon.Document },
   { id: "pictures", title: "Pictures and Screenshots", kinds: ["image", "screenshot"], icon: Icon.Image },
-  { id: "recordings", title: "Recordings", kinds: ["audio"], icon: Icon.Microphone },
+  { id: "audio", title: "Audio", kinds: ["audio"], icon: Icon.Microphone },
   { id: "videos", title: "Videos", kinds: ["video"], icon: Icon.FilmStrip },
   { id: "code", title: "Code", kinds: ["code"], icon: Icon.Code },
 ];
@@ -61,17 +61,13 @@ export function locationLabel(hit: Hit): string | undefined {
   }
 }
 
-export function shortPath(path: string): string {
+function shortPath(path: string): string {
   const home = homedir();
   return path.startsWith(home) ? "~" + path.slice(home.length) : path;
 }
 
 export function folderOf(path: string): string {
   return shortPath(dirname(path));
-}
-
-export function fileName(path: string): string {
-  return basename(path);
 }
 
 export function bytes(size: number): string {

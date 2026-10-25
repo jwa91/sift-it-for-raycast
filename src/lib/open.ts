@@ -22,7 +22,7 @@ export function openTitle(hit: Hit): { title: string; icon: Icon } {
   return { title: "Open", icon: Icon.ArrowNe };
 }
 
-/** Opens a result where it matched: a recording or video at its moment, a PDF at its page, code at its line. */
+/** Opens a result where it matched: an audio file or video at its moment, a PDF at its page, code at its line. */
 export async function openHit(hit: Hit): Promise<void> {
   if ((hit.kind === "video" || hit.kind === "audio") && hit.loc != null) {
     return playAt(hit.path, hit.loc);
