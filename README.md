@@ -5,25 +5,20 @@ type the exact words: a clause on page 3 of a PDF, a dog in a photo, the minute 
 sleep, the error in a screenshot, a function in your code. It all comes back in one list, each result with a preview
 made for its kind. Everything runs on your Mac, with Google DeepMind's EmbeddingGemma 2.
 
-This extension is a thin front end. The work happens in [sift-it](https://github.com/jwa91/sift-it), a command-line
-tool and background indexer.
+This extension is a thin front end. The work happens in [sift-it](https://github.com/jwa91/sift-it), the engine and
+background indexer; the folders, the models and indexing are set in the
+[Sift It app](https://github.com/jwa91/sift-it-mac).
 
 ## Setup
 
-Sift It needs [sift-it](https://github.com/jwa91/sift-it), the command-line tool that does the work (Apple silicon,
-macOS 14 or later):
+Apple silicon, macOS 14 or later. One install brings the app and the `sift-it` command:
 
 ```sh
 brew install jwa91/tap/sift-it
 ```
 
-Then, in Raycast:
-
-1. **Manage Folders** → Model → Download Model (865 MB, once).
-2. **Manage Folders** → Add Folders. Each folder shows how many files it has and about how long the first pass takes.
-3. **Manage Folders** → Background Indexer → Install. It indexes everything once, then keeps up as files change, from
-   login on.
-4. **Search Files**: give it a hotkey in Raycast's settings.
+Open Sift It from Applications. Its welcome window downloads the models, asks which folders to search, and starts
+indexing. Then, in Raycast, give **Search Files** a hotkey.
 
 ## Searching
 
@@ -34,9 +29,9 @@ One search bar for everything:
 - **Type the words**: invoice numbers, error codes, names. Numbers and codes, which no model reads exactly, count
   heavily; ordinary words decide between results that mean about the same.
 - **Quote them to insist**: `"INV-2024-0113" invoice` only shows files with that exact text, ranked by the rest.
-- **`code:`** searches code (when code reading is on in Manage Folders).
+- **`code:`** searches code, once it's turned on (`sift-it config sources.code true`).
 
-The dropdown can narrow it to documents, pictures, recordings, videos or code, but it starts at everything.
+The dropdown can narrow it to documents, pictures, audio, videos or code, but it starts at everything.
 
 Each result's preview fits its kind:
 
@@ -46,7 +41,7 @@ Each result's preview fits its kind:
 | Screenshot | the screenshot and the text read from it | opens it |
 | PDF | the page that matched, and its text with your words in bold | opens Preview at that page |
 | Document | the passage that matched, your words in bold | opens it |
-| Recording | its waveform with the 30 seconds that matched highlighted | plays from that moment (QuickTime) |
+| Audio | its waveform with the 30 seconds that matched highlighted | plays from that moment (QuickTime) |
 | Video | the frame at the moment, also as its icon in the list (and the waveform, when it matched by sound) | plays from that moment |
 | Code | the code that matched, numbered from its line | opens your editor at the line |
 
@@ -57,16 +52,14 @@ Each result's preview fits its kind:
 | Command | |
 |---|---|
 | Search Files | The one search, described above. |
-| Manage Folders | Folders to search and skip, the model, the background indexer, options. |
-| Indexing Status | The menu bar: what's being indexed, pause and resume. |
+| Open Settings | The Sift It app's settings: the folders to search, the models, indexing. |
 
 ## How it talks to sift-it
 
 Search Files starts `sift-it serve` while it's open: it keeps the index's vectors in memory and the query encoder
 loaded, and answers JSON requests on stdin (search, recent files, previews: a picture, a PDF page, a video frame, a
-waveform, a passage's text). Manage Folders and the menu bar run `sift-it` commands (`status --json`, `folders`,
-`estimate --json`, `model download --json`, `service install`) and read the background indexer's `status.json`. The
-extension finds sift-it in `/opt/homebrew/bin`, or wherever its preference points.
+waveform, a passage's text). It finds sift-it in `/opt/homebrew/bin`, or wherever its preference points. Open
+Settings opens `sift-it://settings`, which the app handles.
 
 ## Development
 
@@ -75,5 +68,5 @@ npm install
 npm run dev         # Raycast picks up changes as you save
 npm run lint
 npm run build
-swift scripts/make-icons.swift   # redraws assets/
+swift scripts/make-icons.swift   # redraws assets/icon.png
 ```

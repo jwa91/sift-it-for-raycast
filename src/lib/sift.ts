@@ -1,11 +1,7 @@
 import { getPreferenceValues } from "@raycast/api";
-import { execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-
-/** Where the engine keeps its files (see engine/src/config.rs). */
-export const SIFT_HOME = join(homedir(), "Library/Application Support/Sift It");
 
 export type Kind = "plaintext" | "document" | "image" | "screenshot" | "audio" | "video" | "code";
 export type Segment = "passage" | "page" | "picture" | "ocr" | "sound" | "frame";
@@ -44,82 +40,6 @@ export interface SearchResponse {
   ms: number;
 }
 
-/** The parts of config.json this extension changes (`sift-it config` shows and sets all of it). */
-export interface Config {
-  sources: {
-    paths: string[];
-    /** Patterns for files and folders to leave out: a name anywhere ("*.psd"), or a path ("~/Documents/Old"). */
-    ignore: string[];
-    kinds: Record<string, string[]>;
-    code: boolean;
-  };
-  indexing: { on_battery: boolean };
-}
-
-export interface Stats {
-  files: number;
-  done: number;
-  pending: number;
-  failed: number;
-  segments: number;
-  vectors: number;
-  by_kind: Record<string, number>;
-  bytes: number;
-}
-
-/** The work still queued: about how long reading it takes, and the files that take longest. */
-export interface Queued {
-  files: number;
-  seconds: number;
-  heaviest: { path: string; kind: Kind; seconds: number }[];
-}
-
-export interface Status {
-  index: string;
-  stats: Stats;
-  queued: Queued;
-  /** Recordings and videos whose speech is written down, and the sound still to go. */
-  speech: { done: number; total: number; seconds: number; unavailable?: string | null };
-  config: Config;
-  models: { folder: string; text: boolean; media: boolean; bytes: number };
-  indexer?: IndexerStatus | null;
-}
-
-/** What the background indexer writes to status.json. */
-export interface IndexerStatus {
-  pid: number;
-  state: "starting" | "syncing" | "indexing" | "idle" | "paused" | "waiting" | "stopped";
-  detail?: string | null;
-  done: number;
-  total: number;
-  current?: string | null;
-  updated: number;
-  last_error?: string | null;
-}
-
-/** What indexing a folder means (`sift-it estimate`). */
-export interface Estimate {
-  folder: string;
-  files: number;
-  bytes: number;
-  by_kind: Record<string, number>;
-  seconds: number;
-  unreadable: boolean;
-}
-
-export async function estimate(folders: string[]): Promise<Estimate[]> {
-  if (folders.length === 0) return [];
-  return JSON.parse(await runSift(["estimate", "--json", ...folders], 300_000)) as Estimate[];
-}
-
-/** "about 12 minutes", as the engine says it. */
-export function describeDuration(seconds: number): string {
-  if (seconds < 60) return "under a minute";
-  if (seconds < 90) return "about a minute";
-  if (seconds < 90 * 60) return `about ${Math.round(seconds / 60)} minutes`;
-  return `about ${Math.round(seconds / 3600)} hours`;
-}
-
 /** The sift-it binary: the one set in preferences, else Homebrew's (brew install jwa91/tap/sift-it), else `make install`'s. */
 export function siftBinary(): string | undefined {
   const { siftPath } = getPreferenceValues<Preferences>();
@@ -130,56 +50,4 @@ export function siftBinary(): string | undefined {
     "/usr/local/bin/sift-it",
   ];
   return candidates.find((path): path is string => !!path && existsSync(path));
-}
-
-export class MissingEngineError extends Error {
-  constructor() {
-    super(
-      "sift-it isn't installed. Install it with Homebrew (brew install jwa91/tap/sift-it), or set its path in preferences.",
-    );
-  }
-}
-
-/** Runs `sift-it <args>` and returns its stdout. */
-export function runSift(args: string[], timeout = 60_000): Promise<string> {
-  const binary = siftBinary();
-  if (!binary) return Promise.reject(new MissingEngineError());
-  return new Promise((resolve, reject) => {
-    execFile(binary, args, { timeout, maxBuffer: 64 << 20 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr.trim().replace(/^sift-it: /, "") || error.message));
-      else resolve(stdout);
-    });
-  });
-}
-
-export async function getStatus(): Promise<Status> {
-  const status = JSON.parse(await runSift(["status", "--json"])) as Status;
-  status.indexer = readIndexerStatus();
-  return status;
-}
-
-/** The background indexer's status file, when it's running (a file older than a few minutes is from a dead one). */
-export function readIndexerStatus(): IndexerStatus | null {
-  try {
-    const status = JSON.parse(readFileSync(join(SIFT_HOME, "status.json"), "utf8")) as IndexerStatus;
-    const alive = (() => {
-      try {
-        process.kill(status.pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-    return alive ? status : { ...status, state: "stopped" };
-  } catch {
-    return null;
-  }
-}
-
-/** Starts a sift-it command that outlives Raycast's window (indexing, the model download). */
-export function startDetached(args: string[]): void {
-  const binary = siftBinary();
-  if (!binary) throw new MissingEngineError();
-  const child = spawn(binary, args, { detached: true, stdio: "ignore" });
-  child.unref();
 }

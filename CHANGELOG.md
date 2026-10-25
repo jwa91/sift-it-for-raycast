@@ -1,5 +1,11 @@
 # Sift It Changelog
 
+## [Two Commands] - {PR_MERGE_DATE}
+
+- Two commands: Search Files, and Open Settings, which opens the Sift It app's settings.
+- Manage Folders and Indexing Status are gone: the folders, the models and indexing are in the Sift It app now.
+- Recordings are called Audio now, as in the app.
+
 ## [Initial Version] - {PR_MERGE_DATE}
 
 - One search bar for every kind of file on your Mac: describe what you're looking for, or type the exact words.

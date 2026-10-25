@@ -16,11 +16,11 @@ import { detailMarkdown } from "./lib/markdown";
 import { openHit, openTitle } from "./lib/open";
 import { Preview, SHOWN_AS_IS, previewKey, usePreviews, useThumbnails } from "./lib/preview";
 import type { Hit, SearchResponse } from "./lib/sift";
-import Folders from "./folders";
+import { openSettings } from "./settings";
 
 /**
  * One search for every kind of file. Describe what you're looking for or type exact words (in quotes to insist on
- * them); the list holds documents, PDF pages, pictures, screenshots, and moments in recordings and videos together, and
+ * them); the list holds documents, PDF pages, pictures, screenshots, and moments in audio and videos together, and
  * each result's preview is made for its kind.
  */
 export default function Command() {
@@ -129,11 +129,11 @@ export default function Command() {
           description={
             searching
               ? "No file matches that closely. Describe it differently, or check the words in quotes."
-              : "Choose the folders to search in Manage Folders."
+              : "Choose the folders to search in Sift It's settings."
           }
           actions={
             <ActionPanel>
-              <Action.Push title="Manage Folders" icon={Icon.Folder} target={<Folders />} />
+              <Action title="Open Sift It Settings" icon={Icon.Gear} onAction={openSettings} />
             </ActionPanel>
           }
         />
@@ -229,12 +229,7 @@ function Result(props: {
             />
           </ActionPanel.Section>
           <ActionPanel.Section>
-            <Action.Push
-              title="Manage Folders"
-              icon={Icon.Folder}
-              target={<Folders />}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
-            />
+            <Action title="Open Sift It Settings" icon={Icon.Gear} onAction={openSettings} />
           </ActionPanel.Section>
         </ActionPanel>
       }
