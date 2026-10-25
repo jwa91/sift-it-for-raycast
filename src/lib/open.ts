@@ -1,9 +1,12 @@
-import { Icon, getPreferenceValues, open, showHUD } from "@raycast/api";
+import { Clipboard, Icon, Toast, getPreferenceValues, open, showHUD, showToast } from "@raycast/api";
 import { runAppleScript } from "@raycast/utils";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { type Hit, isPdf } from "./sift";
-import { locationLabel, timestamp } from "./format";
+import { existsSync, statSync } from "node:fs";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { type Hit, conversationOf, isPdf } from "./sift";
+import { locationLabel, resumeCommand, shortPath, timestamp } from "./format";
 
 /** AppleScript string literal. */
 function quoted(text: string): string {
@@ -12,6 +15,7 @@ function quoted(text: string): string {
 
 /** What the primary action says for this result. */
 export function openTitle(hit: Hit): { title: string; icon: Icon } {
+  if (resumeCommand(hit)) return { title: "Resume", icon: Icon.Terminal };
   const at = hit.loc != null ? locationLabel(hit) : undefined;
   if ((hit.kind === "video" || hit.kind === "audio") && hit.loc != null) {
     return { title: `Play from ${timestamp(hit.loc)}`, icon: Icon.Play };
@@ -22,8 +26,13 @@ export function openTitle(hit: Hit): { title: string; icon: Icon } {
   return { title: "Open", icon: Icon.ArrowNe };
 }
 
-/** Opens a result where it matched: an audio file or video at its moment, a PDF at its page, code at its line. */
+/**
+ * Opens a result where it matched: an audio file or video at its moment, a PDF at its page, code at its line. A
+ * conversation is resumed instead.
+ */
 export async function openHit(hit: Hit): Promise<void> {
+  const command = resumeCommand(hit);
+  if (command) return resume(hit, command);
   if ((hit.kind === "video" || hit.kind === "audio") && hit.loc != null) {
     return playAt(hit.path, hit.loc);
   }
@@ -35,6 +44,56 @@ export async function openHit(hit: Hit): Promise<void> {
     return;
   }
   await open(hit.path);
+}
+
+/**
+ * Resumes a conversation in the folder it started in, as the Sift It app does: a .command file in the app's caches
+ * (~/Library/Caches/sift-it/resume), opened in the terminal that opens those (Terminal, or the one chosen for them), in
+ * a login shell, so `claude` and `codex` are found as they are when typed. A folder that's gone is said, with the
+ * command to copy.
+ */
+async function resume(hit: Hit, command: string): Promise<void> {
+  const cwd = conversationOf(hit)?.cwd ?? "";
+  let folder = false;
+  try {
+    folder = statSync(cwd).isDirectory();
+  } catch {
+    // Gone: a removed worktree, say.
+  }
+  if (!folder) {
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "The folder this conversation ran in is gone",
+      message: `${shortPath(cwd)} isn't there any more, so it can't be resumed in it.`,
+      primaryAction: {
+        title: "Copy Resume Command",
+        onAction: async (toast) => {
+          await Clipboard.copy(command);
+          toast.style = Toast.Style.Success;
+          toast.title = "Copied the resume command";
+          toast.message = undefined;
+          toast.primaryAction = undefined;
+        },
+      },
+    });
+    return;
+  }
+  try {
+    const scripts = join(homedir(), "Library/Caches/sift-it/resume");
+    await mkdir(scripts, { recursive: true });
+    const name = (conversationOf(hit)?.session ?? "").replace(/[^\p{L}\p{N}-]/gu, "") || "conversation";
+    const script = join(scripts, `${name}.command`);
+    await writeFile(script, `#!/bin/sh\n${command}\n`);
+    await chmod(script, 0o755);
+    await open(script);
+  } catch {
+    await Clipboard.copy(command);
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Couldn't open a terminal",
+      message: "The resume command is copied: paste it in one.",
+    });
+  }
 }
 
 /** QuickTime Player, at the moment (asks once for permission to control QuickTime). */

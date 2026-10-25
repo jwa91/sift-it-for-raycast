@@ -11,17 +11,29 @@ import {
 } from "@raycast/api";
 import { useEffect, useRef, useState } from "react";
 import { useEngine } from "./lib/engine";
-import { FILTERS, KIND_ICONS, KIND_LABELS, bytes, folderOf, locationLabel, timestamp } from "./lib/format";
+import {
+  FILTERS,
+  agentName,
+  bytes,
+  dateTime,
+  folderShown,
+  kindIcon,
+  kindLabel,
+  locationLabel,
+  resumeCommand,
+  timestamp,
+  when,
+} from "./lib/format";
 import { detailMarkdown } from "./lib/markdown";
 import { openHit, openTitle } from "./lib/open";
 import { Preview, SHOWN_AS_IS, previewKey, usePreviews, useThumbnails } from "./lib/preview";
-import type { Hit, SearchResponse } from "./lib/sift";
+import { type Hit, type SearchResponse, conversationOf } from "./lib/sift";
 import { openSettings } from "./settings";
 
 /**
  * One search for every kind of file. Describe what you're looking for or type exact words (in quotes to insist on
- * them); the list holds documents, PDF pages, pictures, screenshots, and moments in audio and videos together, and
- * each result's preview is made for its kind.
+ * them); the list holds documents, PDF pages, pictures, screenshots, moments in audio and videos, and conversations
+ * with Claude Code and Codex together, and each result's preview is made for its kind.
  */
 export default function Command() {
   const { engine, ready, meaning, error, missing } = useEngine();
@@ -146,8 +158,12 @@ export default function Command() {
   );
 }
 
-/** The list icon: a picture itself, a video its frame where it matched (once there), the rest their file's icon. */
+/**
+ * The list icon: a picture itself, a video its frame where it matched (once there), a conversation speech bubbles (its
+ * log's type says nothing), the rest their file's icon.
+ */
 function iconFor(hit: Hit, preview?: Preview, thumbnail?: string): Image.ImageLike {
+  if (hit.kind === "conversation") return { source: Icon.SpeechBubble, tintColor: Color.Purple };
   const visual = hit.kind === "image" || hit.kind === "screenshot" || hit.kind === "video";
   const image = thumbnail ?? preview?.image;
   if (visual && image) return { source: image, mask: Image.Mask.RoundedRectangle };
@@ -157,8 +173,9 @@ function iconFor(hit: Hit, preview?: Preview, thumbnail?: string): Image.ImageLi
   return { fileIcon: hit.path };
 }
 
-/** Where the match is, short, for the list: "p. 3", "1:24", "line 12". */
+/** Where the match is, short, for the list: "p. 3", "1:24", "line 12", and a conversation's day, "2 Jun". */
 function shortLocation(hit: Hit): string | undefined {
+  if (hit.segment === "exchange" && hit.loc != null) return when(hit.loc, false);
   const label = locationLabel(hit);
   if (!label) return undefined;
   return label
@@ -177,24 +194,26 @@ function Result(props: {
 }) {
   const { hit, query, preview, thumbnail, showingDetail, onToggleDetail } = props;
   const open = openTitle(hit);
+  const resume = resumeCommand(hit);
   const where = shortLocation(hit);
+  const place = where
+    ? [{ tag: where, tooltip: hit.segment === "exchange" ? "When it was said" : "Where it matched" }]
+    : [];
   const accessories: List.Item.Accessory[] = showingDetail
-    ? where
-      ? [{ tag: where, tooltip: "Where it matched" }]
-      : []
+    ? place
     : [
-        ...(where ? [{ tag: where, tooltip: "Where it matched" }] : []),
+        ...place,
         ...(hit.words
           ? [{ icon: { source: Icon.Text, tintColor: Color.Green }, tooltip: "Has your exact words" }]
           : []),
-        { text: KIND_LABELS[hit.kind], icon: KIND_ICONS[hit.kind] },
+        { text: kindLabel(hit.kind), icon: kindIcon(hit.kind) },
         { date: new Date(hit.modified * 1000), tooltip: "Modified" },
       ];
   return (
     <List.Item
       id={hit.path}
       title={hit.name}
-      subtitle={showingDetail ? undefined : folderOf(hit.path)}
+      subtitle={showingDetail ? undefined : folderShown(hit)}
       icon={iconFor(hit, preview, thumbnail)}
       accessories={accessories}
       quickLook={{ path: hit.path, name: hit.name }}
@@ -208,11 +227,20 @@ function Result(props: {
             <Action.OpenWith path={hit.path} shortcut={Keyboard.Shortcut.Common.OpenWith} />
           </ActionPanel.Section>
           <ActionPanel.Section>
-            <Action.CopyToClipboard
-              title="Copy File"
-              content={{ file: hit.path }}
-              shortcut={Keyboard.Shortcut.Common.Copy}
-            />
+            {resume ? (
+              // A conversation's log is no use elsewhere: its command is.
+              <Action.CopyToClipboard
+                title="Copy Resume Command"
+                content={resume}
+                shortcut={Keyboard.Shortcut.Common.Copy}
+              />
+            ) : (
+              <Action.CopyToClipboard
+                title="Copy File"
+                content={{ file: hit.path }}
+                shortcut={Keyboard.Shortcut.Common.Copy}
+              />
+            )}
             <Action.CopyToClipboard title="Copy Path" content={hit.path} shortcut={Keyboard.Shortcut.Common.CopyPath} />
             {preview?.text && (
               <Action.CopyToClipboard
@@ -239,6 +267,8 @@ function Result(props: {
 
 function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; preview?: Preview }) {
   const info = hit.info ?? {};
+  const conversation = conversationOf(hit);
+  const agent = agentName(conversation?.agent);
   const where = locationLabel(hit);
   const span =
     (hit.segment === "sound" || hit.segment === "frame") && hit.loc != null
@@ -253,8 +283,11 @@ function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; previe
       markdown={detailMarkdown(hit, preview, query)}
       metadata={
         <List.Item.Detail.Metadata>
-          <List.Item.Detail.Metadata.Label title="Kind" text={KIND_LABELS[hit.kind]} icon={KIND_ICONS[hit.kind]} />
-          {span && <List.Item.Detail.Metadata.Label title="Match" text={span} />}
+          <List.Item.Detail.Metadata.Label title="Kind" text={kindLabel(hit.kind)} icon={kindIcon(hit.kind)} />
+          {agent && <List.Item.Detail.Metadata.Label title="Agent" text={agent} />}
+          {span && (
+            <List.Item.Detail.Metadata.Label title={hit.segment === "exchange" ? "Said" : "Match"} text={span} />
+          )}
           {(hit.meaning || hit.words) && (
             <List.Item.Detail.Metadata.TagList title="Matched by">
               {hit.meaning && <List.Item.Detail.Metadata.TagList.Item text="meaning" color={Color.Blue} />}
@@ -275,9 +308,9 @@ function ResultDetail({ hit, query, preview }: { hit: Hit; query: string; previe
             />
           )}
           <List.Item.Detail.Metadata.Separator />
-          <List.Item.Detail.Metadata.Label title="Folder" text={folderOf(hit.path)} />
-          <List.Item.Detail.Metadata.Label title="Modified" text={new Date(hit.modified * 1000).toLocaleString()} />
-          <List.Item.Detail.Metadata.Label title="File Size" text={bytes(hit.size)} />
+          <List.Item.Detail.Metadata.Label title="Folder" text={folderShown(hit)} />
+          <List.Item.Detail.Metadata.Label title="Modified" text={dateTime(hit.modified)} />
+          {!conversation && <List.Item.Detail.Metadata.Label title="File Size" text={bytes(hit.size)} />}
         </List.Item.Detail.Metadata>
       }
     />
