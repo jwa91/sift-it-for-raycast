@@ -42,7 +42,7 @@ async function load(engine: Engine, hit: Hit): Promise<Preview> {
       break;
     case "video":
       parts.push(render({ kind: "video", loc: hit.loc ?? 0, size: 1024 }).then((image) => (preview.image = image)));
-      if (hit.segment === "sound") {
+      if (hit.segment === "sound" || hit.segment === "speech") {
         parts.push(waveform(render, hit).then((image) => (preview.waveform = image)));
       }
       break;
